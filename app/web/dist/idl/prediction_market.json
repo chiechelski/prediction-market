@@ -1,0 +1,1956 @@
+{
+  "address": "C5QvWnGHeC6o7N68heWFKPvC35eggZ9Mrgqzj86WwrBv",
+  "metadata": {
+    "name": "prediction_market",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "add_allowed_collateral_mint",
+      "discriminator": [
+        230,
+        100,
+        188,
+        206,
+        152,
+        143,
+        230,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "allowed_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  108,
+                  108,
+                  111,
+                  119,
+                  101,
+                  100,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_market_early",
+      "discriminator": [
+        249,
+        72,
+        175,
+        9,
+        87,
+        92,
+        121,
+        92
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver_0"
+        },
+        {
+          "name": "resolver_1"
+        },
+        {
+          "name": "resolver_2"
+        },
+        {
+          "name": "resolver_3"
+        },
+        {
+          "name": "resolver_4"
+        },
+        {
+          "name": "resolver_5"
+        },
+        {
+          "name": "resolver_6"
+        },
+        {
+          "name": "resolver_7"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CloseMarketEarlyArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_market",
+      "discriminator": [
+        103,
+        226,
+        97,
+        235,
+        200,
+        188,
+        251,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "creator",
+          "signer": true
+        },
+        {
+          "name": "creator_fee_account"
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "allowed_mint",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  108,
+                  108,
+                  111,
+                  119,
+                  101,
+                  100,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "collateral_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateMarketArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize_resolution",
+      "discriminator": [
+        191,
+        74,
+        94,
+        214,
+        45,
+        150,
+        152,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolution_vote_0",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_1",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_2",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_3",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_4",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_5",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_6",
+          "optional": true
+        },
+        {
+          "name": "resolution_vote_7",
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "FinalizeResolutionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "platform_treasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize_market_mints",
+      "discriminator": [
+        150,
+        238,
+        104,
+        206,
+        134,
+        88,
+        76,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "outcome_mint_0",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_1",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_2",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_3",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_4",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_5",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_6",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_7",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeMarketMintsArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_market_resolvers",
+      "discriminator": [
+        142,
+        109,
+        67,
+        52,
+        227,
+        223,
+        156,
+        85
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "resolver_0",
+          "writable": true
+        },
+        {
+          "name": "resolver_1",
+          "writable": true
+        },
+        {
+          "name": "resolver_2",
+          "writable": true
+        },
+        {
+          "name": "resolver_3",
+          "writable": true
+        },
+        {
+          "name": "resolver_4",
+          "writable": true
+        },
+        {
+          "name": "resolver_5",
+          "writable": true
+        },
+        {
+          "name": "resolver_6",
+          "writable": true
+        },
+        {
+          "name": "resolver_7",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeMarketResolversArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mint_complete_set",
+      "discriminator": [
+        70,
+        222,
+        130,
+        148,
+        234,
+        103,
+        137,
+        61
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "user_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "platform_treasury",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_account",
+          "writable": true
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "allowed_mint",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  108,
+                  108,
+                  111,
+                  119,
+                  101,
+                  100,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "collateral_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "outcome_mint_0",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_1",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_2",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_3",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_4",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_5",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_6",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_7",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_0",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_1",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_2",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_3",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_4",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_5",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_6",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_7",
+          "writable": true
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "MintCompleteSetArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "redeem_complete_set",
+      "discriminator": [
+        73,
+        220,
+        176,
+        168,
+        65,
+        16,
+        70,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "user_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_0",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_1",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_2",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_3",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_4",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_5",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_6",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_7",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_0",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_1",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_2",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_3",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_4",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_5",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_6",
+          "writable": true
+        },
+        {
+          "name": "user_outcome_7",
+          "writable": true
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RedeemCompleteSetArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "redeem_winning",
+      "discriminator": [
+        191,
+        44,
+        57,
+        7,
+        31,
+        46,
+        190,
+        162
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "user_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_0",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_1",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_2",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_3",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_4",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_5",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_6",
+          "writable": true
+        },
+        {
+          "name": "outcome_mint_7",
+          "writable": true
+        },
+        {
+          "name": "user_winning_outcome",
+          "writable": true
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RedeemWinningArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "remove_allowed_collateral_mint",
+      "discriminator": [
+        74,
+        156,
+        218,
+        211,
+        102,
+        182,
+        68,
+        197
+      ],
+      "accounts": [
+        {
+          "name": "allowed_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  108,
+                  108,
+                  111,
+                  119,
+                  101,
+                  100,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mint"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "platform_treasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "void_market",
+      "discriminator": [
+        243,
+        175,
+        46,
+        124,
+        95,
+        101,
+        39,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver_0"
+        },
+        {
+          "name": "resolver_1"
+        },
+        {
+          "name": "resolver_2"
+        },
+        {
+          "name": "resolver_3"
+        },
+        {
+          "name": "resolver_4"
+        },
+        {
+          "name": "resolver_5"
+        },
+        {
+          "name": "resolver_6"
+        },
+        {
+          "name": "resolver_7"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "VoidMarketArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "vote_resolution",
+      "discriminator": [
+        137,
+        137,
+        237,
+        83,
+        15,
+        30,
+        101,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "resolver_signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver_0"
+        },
+        {
+          "name": "resolver_1"
+        },
+        {
+          "name": "resolver_2"
+        },
+        {
+          "name": "resolver_3"
+        },
+        {
+          "name": "resolver_4"
+        },
+        {
+          "name": "resolver_5"
+        },
+        {
+          "name": "resolver_6"
+        },
+        {
+          "name": "resolver_7"
+        },
+        {
+          "name": "resolution_vote",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "VoteResolutionArgs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AllowedMint",
+      "discriminator": [
+        173,
+        229,
+        179,
+        46,
+        121,
+        164,
+        247,
+        6
+      ]
+    },
+    {
+      "name": "GlobalConfig",
+      "discriminator": [
+        149,
+        8,
+        156,
+        202,
+        160,
+        252,
+        176,
+        217
+      ]
+    },
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    },
+    {
+      "name": "ResolutionVote",
+      "discriminator": [
+        162,
+        225,
+        212,
+        237,
+        209,
+        107,
+        108,
+        6
+      ]
+    },
+    {
+      "name": "Resolver",
+      "discriminator": [
+        108,
+        125,
+        211,
+        206,
+        52,
+        124,
+        132,
+        79
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "ConfigUnauthorized",
+      "msg": "Global config can only be updated by authority"
+    },
+    {
+      "code": 6001,
+      "name": "MintNotAllowed",
+      "msg": "Collateral mint is not on the allowlist"
+    },
+    {
+      "code": 6002,
+      "name": "MarketClosed",
+      "msg": "Market is closed (early or past close_at)"
+    },
+    {
+      "code": 6003,
+      "name": "MarketNotClosed",
+      "msg": "Market is not closed yet"
+    },
+    {
+      "code": 6004,
+      "name": "MarketAlreadyResolved",
+      "msg": "Market is already resolved"
+    },
+    {
+      "code": 6005,
+      "name": "MarketVoided",
+      "msg": "Market is voided"
+    },
+    {
+      "code": 6006,
+      "name": "MarketNotVoided",
+      "msg": "Market is not voided"
+    },
+    {
+      "code": 6007,
+      "name": "MarketNotResolved",
+      "msg": "Market is not resolved"
+    },
+    {
+      "code": 6008,
+      "name": "CannotVoidResolvedMarket",
+      "msg": "Cannot void an already resolved market"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidOutcomeIndex",
+      "msg": "Invalid outcome index"
+    },
+    {
+      "code": 6010,
+      "name": "NotResolver",
+      "msg": "Signer is not a resolver for this market"
+    },
+    {
+      "code": 6011,
+      "name": "OnlyCreatorOrResolver",
+      "msg": "Only creator or resolver can perform this action"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidFeeBps",
+      "msg": "Platform fee + creator fee must not exceed 10000 bps"
+    },
+    {
+      "code": 6013,
+      "name": "CloseAtMustBeInFuture",
+      "msg": "Close time must be in the future"
+    },
+    {
+      "code": 6014,
+      "name": "ZeroMintAmount",
+      "msg": "Mint amount must be greater than zero"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidResolutionThreshold",
+      "msg": "Invalid resolution threshold (M must be <= number of resolvers)"
+    }
+  ],
+  "types": [
+    {
+      "name": "AllowedMint",
+      "docs": [
+        "Marker account: existence means this mint is allowed as collateral."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CloseMarketEarlyArgs",
+      "docs": [
+        "Close the market early. Allowed by market creator or any resolver."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateMarketArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "outcome_count",
+            "type": "u8"
+          },
+          {
+            "name": "resolution_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "close_at",
+            "type": "i64"
+          },
+          {
+            "name": "creator_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "num_resolvers",
+            "docs": [
+              "Up to 8 resolver pubkeys, set during initialize_market_resolvers."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FinalizeResolutionArgs",
+      "docs": [
+        "Check M-of-N resolution votes and mark market resolved when threshold is met.",
+        "Anyone can call. No-op if already resolved or threshold not met."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GlobalConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_treasury",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeMarketMintsArgs",
+      "docs": [
+        "Second step of market creation: initializes the 8 outcome mints.",
+        "Decimals are inherited from `market.collateral_decimals` (stored during `create_market`),",
+        "so 1 outcome token ≡ 1 collateral token."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeMarketResolversArgs",
+      "docs": [
+        "Third step of market creation: initializes the 8 resolver PDAs and writes the provided pubkeys."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "resolver_pubkeys",
+            "type": {
+              "array": [
+                "pubkey",
+                8
+              ]
+            }
+          },
+          {
+            "name": "num_resolvers",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "collateral_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_decimals",
+            "type": "u8"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome_count",
+            "type": "u8"
+          },
+          {
+            "name": "close_at",
+            "type": "i64"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          },
+          {
+            "name": "resolved_outcome_index",
+            "type": {
+              "option": "u8"
+            }
+          },
+          {
+            "name": "voided",
+            "type": "bool"
+          },
+          {
+            "name": "resolution_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_fee_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_fee_bps",
+            "docs": [
+              "0 = use global config default"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintCompleteSetArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "market_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RedeemCompleteSetArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RedeemWinningArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolutionVote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outcome_index",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Resolver",
+      "docs": [
+        "Marker: this pubkey is a resolver for the market."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "resolver_pubkey",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoidMarketArgs",
+      "docs": [
+        "Void the market. Allowed by market creator or any resolver. Rejected if already resolved."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteResolutionArgs",
+      "docs": [
+        "A resolver submits their vote for an outcome. Call finalize_resolution to apply M-of-N and mark resolved."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "outcome_index",
+            "type": "u8"
+          },
+          {
+            "name": "resolver_index",
+            "docs": [
+              "Resolver slot index (0..7) for this signer; must match the resolver account at this index."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

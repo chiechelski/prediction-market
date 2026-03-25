@@ -1,0 +1,99 @@
+import { PublicKey } from '@solana/web3.js';
+import type BN from 'bn.js';
+
+export function deriveGlobalConfig(programId: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('global-config')],
+    programId
+  );
+  return pda;
+}
+
+export function deriveMarket(
+  programId: PublicKey,
+  creator: PublicKey,
+  marketId: BN
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('market'),
+      creator.toBuffer(),
+      marketId.toArrayLike(Buffer, 'le', 8),
+    ],
+    programId
+  );
+  return pda;
+}
+
+export function deriveVault(programId: PublicKey, market: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('vault')],
+    programId
+  );
+  return pda;
+}
+
+export function deriveOutcomeMint(
+  programId: PublicKey,
+  market: PublicKey,
+  index: number
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('outcome-mint'), Buffer.from([index])],
+    programId
+  );
+  return pda;
+}
+
+export function deriveAllowedMint(
+  programId: PublicKey,
+  mint: PublicKey
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('allowed-mint'), mint.toBuffer()],
+    programId
+  );
+  return pda;
+}
+
+export function deriveResolver(
+  programId: PublicKey,
+  market: PublicKey,
+  index: number
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('resolver'), Buffer.from([index])],
+    programId
+  );
+  return pda;
+}
+
+export function deriveResolutionVote(
+  programId: PublicKey,
+  market: PublicKey,
+  resolverIndex: number
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('vote'), Buffer.from([resolverIndex])],
+    programId
+  );
+  return pda;
+}
+
+export function deriveAllOutcomeMints(
+  programId: PublicKey,
+  market: PublicKey
+): PublicKey[] {
+  return Array.from({ length: 8 }, (_, i) =>
+    deriveOutcomeMint(programId, market, i)
+  );
+}
+
+export function deriveAllResolvers(
+  programId: PublicKey,
+  market: PublicKey
+): PublicKey[] {
+  return Array.from({ length: 8 }, (_, i) =>
+    deriveResolver(programId, market, i)
+  );
+}

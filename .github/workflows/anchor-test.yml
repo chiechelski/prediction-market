@@ -1,0 +1,55 @@
+name: Anchor Test
+
+on:
+  push:
+    paths:
+      - "programs/**"
+      - "tests/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/anchor-test.yml"
+  pull_request:
+    paths:
+      - "programs/**"
+      - "tests/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/anchor-test.yml"
+
+jobs:
+  anchor-test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/coral-xyz/anchor:0.31.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install JS deps
+        run: yarn install --frozen-lockfile
+
+      - name: Anchor versions
+        run: |
+          rustc --version
+          cargo --version
+          solana --version
+          anchor --version
+          node --version
+          yarn --version
+
+      - name: Run Anchor test suite
+        run: anchor test

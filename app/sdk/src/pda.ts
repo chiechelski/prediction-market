@@ -1,0 +1,69 @@
+import { PublicKey } from '@solana/web3.js';
+import BN from 'bn.js';
+
+/** Derive the GlobalConfig PDA. */
+export const deriveGlobalConfig = (programId: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync([Buffer.from('global-config')], programId)[0];
+
+/** Derive the AllowedMint PDA for a given collateral mint. */
+export const deriveAllowedMint = (programId: PublicKey, mint: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('allowed-mint'), mint.toBuffer()],
+    programId
+  )[0];
+
+/** Derive the Market PDA for a given creator + market ID. */
+export const deriveMarket = (
+  programId: PublicKey,
+  creator: PublicKey,
+  marketId: BN
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('market'), creator.toBuffer(), marketId.toArrayLike(Buffer, 'le', 8)],
+    programId
+  )[0];
+
+/** Derive the collateral vault PDA for a market. */
+export const deriveVault = (programId: PublicKey, market: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync([market.toBuffer(), Buffer.from('vault')], programId)[0];
+
+/** Derive the outcome mint PDA for a market and outcome index (0–7). */
+export const deriveOutcomeMint = (
+  programId: PublicKey,
+  market: PublicKey,
+  index: number
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('outcome-mint'), Buffer.from([index])],
+    programId
+  )[0];
+
+/** Derive all 8 outcome mint PDAs for a market. */
+export const deriveAllOutcomeMints = (programId: PublicKey, market: PublicKey): PublicKey[] =>
+  Array.from({ length: 8 }, (_, i) => deriveOutcomeMint(programId, market, i));
+
+/** Derive the Resolver PDA for a market and resolver index (0–7). */
+export const deriveResolver = (
+  programId: PublicKey,
+  market: PublicKey,
+  index: number
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('resolver'), Buffer.from([index])],
+    programId
+  )[0];
+
+/** Derive all 8 resolver PDAs for a market. */
+export const deriveAllResolvers = (programId: PublicKey, market: PublicKey): PublicKey[] =>
+  Array.from({ length: 8 }, (_, i) => deriveResolver(programId, market, i));
+
+/** Derive the ResolutionVote PDA for a market and resolver index (0–7). */
+export const deriveResolutionVote = (
+  programId: PublicKey,
+  market: PublicKey,
+  resolverIndex: number
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('vote'), Buffer.from([resolverIndex])],
+    programId
+  )[0];
