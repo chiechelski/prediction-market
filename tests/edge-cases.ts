@@ -113,6 +113,8 @@ async function createFullMarket(
     creatorFeeBps?: number;
     platformFeeBps?: number;
     closeAtOffset?: number;
+    title?: string;
+    marketCategory?: PublicKey | null;
   }
 ): Promise<{ marketPda: PublicKey; outcomeMints: PublicKey[]; resolverPdas: PublicKey[] }> {
   const closeAt = new BN(Math.floor(Date.now() / 1000) + (opts?.closeAtOffset ?? 7200));
@@ -133,11 +135,13 @@ async function createFullMarket(
       creatorFeeBps: opts?.creatorFeeBps ?? 50,
       platformFeeBps: opts?.platformFeeBps ?? 0,
       numResolvers,
+      title: opts?.title ?? 'Test market',
     })
     .accounts({
       payer: payer.publicKey, market: marketPda, vault: vaultPda,
       collateralMint, creator: payer.publicKey, creatorFeeAccount: creatorFeeAta,
       globalConfig: globalConfigPda, allowedMint: allowedMintPda,
+      marketCategory: opts?.marketCategory ?? null,
       collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
@@ -336,6 +340,7 @@ describe('edge-cases: admin', () => {
           creatorFeeBps: 0,
           platformFeeBps: 0,
           numResolvers: 1,
+          title: 'Test market',
         })
         .accounts({
           payer: payer.publicKey,
@@ -346,6 +351,7 @@ describe('edge-cases: admin', () => {
           creatorFeeAccount: creatorFeeAta,
           globalConfig: globalConfigPda,
           allowedMint: removableAllowedPda,
+          marketCategory: null,
           collateralTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -393,6 +399,7 @@ describe('edge-cases: token-2022 collateral', () => {
         creatorFeeBps: 0,
         platformFeeBps: 0,
         numResolvers: 1,
+        title: 'Test market',
       })
       .accounts({
         payer: payer.publicKey,
@@ -403,6 +410,7 @@ describe('edge-cases: token-2022 collateral', () => {
         creatorFeeAccount: creatorFeeAta,
         globalConfig: globalConfigPda,
         allowedMint: allowed2022Pda,
+        marketCategory: null,
         collateralTokenProgram: TOKEN_2022_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -432,6 +440,7 @@ describe('edge-cases: create market', () => {
           marketId, outcomeCount: 2, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
           creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 1,
+          title: 'Test market',
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -439,6 +448,7 @@ describe('edge-cases: create market', () => {
           collateralMint: unlisted, creator: payer.publicKey,
           creatorFeeAccount: creatorFeeAta, globalConfig: globalConfigPda,
           allowedMint: deriveAllowedMint(program.programId, unlisted),
+          marketCategory: null,
           collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -456,6 +466,7 @@ describe('edge-cases: create market', () => {
           marketId, outcomeCount: 2, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) - 60),
           creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 1,
+          title: 'Test market',
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -463,6 +474,7 @@ describe('edge-cases: create market', () => {
           collateralMint, creator: payer.publicKey,
           creatorFeeAccount: creatorFeeAta, globalConfig: globalConfigPda,
           allowedMint: allowedMintPda,
+          marketCategory: null,
           collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -480,6 +492,7 @@ describe('edge-cases: create market', () => {
           marketId, outcomeCount: 1, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
           creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 1,
+          title: 'Test market',
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -487,6 +500,7 @@ describe('edge-cases: create market', () => {
           collateralMint, creator: payer.publicKey,
           creatorFeeAccount: creatorFeeAta, globalConfig: globalConfigPda,
           allowedMint: allowedMintPda,
+          marketCategory: null,
           collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -504,6 +518,7 @@ describe('edge-cases: create market', () => {
           marketId, outcomeCount: 2, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
           creatorFeeBps: 5001, platformFeeBps: 5001, numResolvers: 1,
+          title: 'Test market',
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -511,6 +526,7 @@ describe('edge-cases: create market', () => {
           collateralMint, creator: payer.publicKey,
           creatorFeeAccount: creatorFeeAta, globalConfig: globalConfigPda,
           allowedMint: allowedMintPda,
+          marketCategory: null,
           collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -528,6 +544,7 @@ describe('edge-cases: create market', () => {
           marketId, outcomeCount: 2, resolutionThreshold: 3,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
           creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 2,
+          title: 'Test market',
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -535,6 +552,7 @@ describe('edge-cases: create market', () => {
           collateralMint, creator: payer.publicKey,
           creatorFeeAccount: creatorFeeAta, globalConfig: globalConfigPda,
           allowedMint: allowedMintPda,
+          marketCategory: null,
           collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })

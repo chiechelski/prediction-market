@@ -24,4 +24,6 @@ export declare const deriveOutcomeTally: (programId: PublicKey, market: PublicKe
 export declare const deriveAllOutcomeTallies: (programId: PublicKey, market: PublicKey) => PublicKey[];
 /** Derive the UserProfile PDA for a given wallet address. Seeds: ["user-profile", wallet]. */
 export declare const deriveUserProfile: (programId: PublicKey, wallet: PublicKey) => PublicKey;
+/** Market category PDA — seeds: `["market-category", category_id u64 LE]`. */
+export declare const deriveMarketCategory: (programId: PublicKey, categoryId: BN) => PublicKey;
 //# sourceMappingURL=pda.d.ts.map

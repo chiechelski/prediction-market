@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type RefObject } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -9,6 +9,7 @@ import {
   PRESET_DOT_CLASS,
   type CustomRpcEntry,
 } from '@/context/NetworkContext';
+import { usePlatformAccess } from '@/hooks/usePlatformAccess';
 
 const nav = [
   { to: '/markets', label: 'Markets' },
@@ -297,6 +298,31 @@ function NetworkSelector() {
   );
 }
 
+function useCloseOnOutsideAndEscape(
+  open: boolean,
+  onClose: () => void,
+  ref: RefObject<HTMLElement | null>
+) {
+  useEffect(() => {
+    if (!open) return;
+    function handleMouse(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('mousedown', handleMouse);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleMouse);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open, onClose, ref]);
+}
+
+const headerMenuLinkClass =
+  'flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors';
+
 const sideNav = [
   { to: '/markets', label: 'Markets', icon: 'leaderboard' },
   { to: '/creator', label: 'Creator', icon: 'person' },
@@ -320,6 +346,16 @@ export default function Layout() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { connected, publicKey } = wallet;
+  const { loading: platformAccessLoading, canAccessPlatform } = usePlatformAccess();
+  const showPlatformNav =
+    connected && !platformAccessLoading && canAccessPlatform;
+
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const notifWrapRef = useRef<HTMLDivElement>(null);
+  const settingsWrapRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideAndEscape(notifOpen, () => setNotifOpen(false), notifWrapRef);
+  useCloseOnOutsideAndEscape(settingsOpen, () => setSettingsOpen(false), settingsWrapRef);
   const shortAddress = publicKey
     ? `${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}`
     : '';
@@ -349,7 +385,10 @@ export default function Layout() {
             </Link>
             {/* Top nav links — hide on xl only when sidebar is active (connected) */}
             <div className={`hidden md:flex items-center gap-6 ${connected ? 'xl:hidden' : ''}`}>
-              {(connected ? nav : nav.filter(({ to }) => to === '/docs')).map(({ to, label }) => {
+              {(connected
+                ? nav.filter(({ to }) => to !== '/platform' || showPlatformNav)
+                : nav.filter(({ to }) => to === '/docs')
+              ).map(({ to, label }) => {
                 const active = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
                 return (
                   <Link
@@ -384,12 +423,101 @@ export default function Layout() {
             <WalletMultiButton />
             {connected && (
               <div className="flex items-center gap-1 text-outline">
-                <button className="p-1.5 hover:bg-surface-container-highest rounded-full transition-colors" aria-label="Notifications">
-                  <span className="material-symbols-outlined text-[20px] leading-none">notifications</span>
-                </button>
-                <button className="p-1.5 hover:bg-surface-container-highest rounded-full transition-colors" aria-label="Settings">
-                  <span className="material-symbols-outlined text-[20px] leading-none">settings</span>
-                </button>
+                <div className="relative" ref={notifWrapRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotifOpen((v) => !v);
+                      setSettingsOpen(false);
+                    }}
+                    className={`p-1.5 rounded-full transition-colors ${
+                      notifOpen ? 'bg-surface-container-highest text-primary' : 'hover:bg-surface-container-highest'
+                    }`}
+                    aria-label="Notifications"
+                    aria-expanded={notifOpen}
+                    aria-haspopup="menu"
+                  >
+                    <span className="material-symbols-outlined text-[20px] leading-none">notifications</span>
+                  </button>
+                  {notifOpen && (
+                    <div
+                      className="absolute right-0 top-full z-[60] mt-2 w-[min(calc(100vw-2rem),20rem)] rounded-xl border border-outline-variant/20 bg-surface-container-low py-1 shadow-xl shadow-black/40"
+                      role="menu"
+                    >
+                      <div className="border-b border-outline-variant/15 px-4 py-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-outline">Notifications</p>
+                      </div>
+                      <div className="px-4 py-6 text-center">
+                        <span className="material-symbols-outlined text-outline/50 text-[40px] mb-2 block">notifications_off</span>
+                        <p className="text-sm text-on-surface-variant">No notifications yet</p>
+                        <p className="mt-1 text-xs text-outline">Resolution updates and alerts will show here.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="relative" ref={settingsWrapRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettingsOpen((v) => !v);
+                      setNotifOpen(false);
+                    }}
+                    className={`p-1.5 rounded-full transition-colors ${
+                      settingsOpen ? 'bg-surface-container-highest text-primary' : 'hover:bg-surface-container-highest'
+                    }`}
+                    aria-label="Quick settings"
+                    aria-expanded={settingsOpen}
+                    aria-haspopup="menu"
+                  >
+                    <span className="material-symbols-outlined text-[20px] leading-none">settings</span>
+                  </button>
+                  {settingsOpen && (
+                    <div
+                      className="absolute right-0 top-full z-[60] min-w-[14rem] rounded-xl border border-outline-variant/20 bg-surface-container-low py-2 shadow-xl shadow-black/40"
+                      role="menu"
+                    >
+                      <Link
+                        to="/settings"
+                        role="menuitem"
+                        onClick={() => setSettingsOpen(false)}
+                        className={headerMenuLinkClass}
+                      >
+                        <span className="material-symbols-outlined text-[20px] text-primary">person</span>
+                        Profile settings
+                      </Link>
+                      <Link
+                        to="/create"
+                        role="menuitem"
+                        onClick={() => setSettingsOpen(false)}
+                        className={headerMenuLinkClass}
+                      >
+                        <span className="material-symbols-outlined text-[20px]">add_circle</span>
+                        Create market
+                      </Link>
+                      {showPlatformNav && (
+                        <Link
+                          to="/platform"
+                          role="menuitem"
+                          onClick={() => setSettingsOpen(false)}
+                          className={headerMenuLinkClass}
+                        >
+                          <span className="material-symbols-outlined text-[20px]">tune</span>
+                          Platform
+                        </Link>
+                      )}
+                      <div className="my-1 border-t border-outline-variant/15" />
+                      <Link
+                        to="/docs"
+                        role="menuitem"
+                        onClick={() => setSettingsOpen(false)}
+                        className={headerMenuLinkClass}
+                      >
+                        <span className="material-symbols-outlined text-[20px]">description</span>
+                        Documentation
+                      </Link>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -431,7 +559,9 @@ export default function Layout() {
 
             {/* Nav items */}
             <div className="flex min-h-0 flex-1 flex-col gap-1 px-4">
-              {sideNav.map(({ to, label, icon }) => {
+              {sideNav
+                .filter(({ to }) => to !== '/platform' || showPlatformNav)
+                .map(({ to, label, icon }) => {
                 const active = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
                 return (
                   <Link

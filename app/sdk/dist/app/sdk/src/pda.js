@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deriveUserProfile = exports.deriveAllOutcomeTallies = exports.deriveOutcomeTally = exports.deriveResolutionVote = exports.deriveAllResolvers = exports.deriveResolver = exports.deriveAllOutcomeMints = exports.deriveOutcomeMint = exports.deriveVault = exports.deriveMarket = exports.deriveAllowedMint = exports.deriveGlobalConfig = void 0;
+exports.deriveMarketCategory = exports.deriveUserProfile = exports.deriveAllOutcomeTallies = exports.deriveOutcomeTally = exports.deriveResolutionVote = exports.deriveAllResolvers = exports.deriveResolver = exports.deriveAllOutcomeMints = exports.deriveOutcomeMint = exports.deriveVault = exports.deriveMarket = exports.deriveAllowedMint = exports.deriveGlobalConfig = void 0;
 const web3_js_1 = require("@solana/web3.js");
 /** Derive the GlobalConfig PDA. */
 const deriveGlobalConfig = (programId) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('global-config')], programId)[0];
@@ -38,4 +38,7 @@ exports.deriveAllOutcomeTallies = deriveAllOutcomeTallies;
 /** Derive the UserProfile PDA for a given wallet address. Seeds: ["user-profile", wallet]. */
 const deriveUserProfile = (programId, wallet) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('user-profile'), wallet.toBuffer()], programId)[0];
 exports.deriveUserProfile = deriveUserProfile;
+/** Market category PDA — seeds: `["market-category", category_id u64 LE]`. */
+const deriveMarketCategory = (programId, categoryId) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('market-category'), categoryId.toArrayLike(Buffer, 'le', 8)], programId)[0];
+exports.deriveMarketCategory = deriveMarketCategory;
 //# sourceMappingURL=pda.js.map

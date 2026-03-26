@@ -8,6 +8,22 @@ import MarketDetail from '@/pages/MarketDetail';
 import Platform from '@/pages/Platform';
 import Docs from '@/pages/Docs';
 import Settings from '@/pages/Settings';
+import { usePlatformAccess } from '@/hooks/usePlatformAccess';
+
+function PlatformRoute() {
+  const { loading, canAccessPlatform } = usePlatformAccess();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <p className="text-outline">Loading…</p>
+      </div>
+    );
+  }
+  if (!canAccessPlatform) {
+    return <Navigate to="/markets" replace />;
+  }
+  return <Platform />;
+}
 
 export default function App() {
   const { connected } = useWallet();
@@ -20,7 +36,7 @@ export default function App() {
         <Route path="creator" element={connected ? <Dashboard tab="creator" /> : <Navigate to="/" replace />} />
         <Route path="judges" element={connected ? <Dashboard tab="judges" /> : <Navigate to="/" replace />} />
         <Route path="create" element={connected ? <CreateMarket /> : <Navigate to="/" replace />} />
-        <Route path="platform" element={connected ? <Platform /> : <Navigate to="/" replace />} />
+        <Route path="platform" element={connected ? <PlatformRoute /> : <Navigate to="/" replace />} />
         <Route path="settings" element={connected ? <Settings /> : <Navigate to="/" replace />} />
         <Route path="docs" element={<Docs />} />
         <Route path="market/:marketKey" element={connected ? <MarketDetail /> : <Navigate to="/" replace />} />

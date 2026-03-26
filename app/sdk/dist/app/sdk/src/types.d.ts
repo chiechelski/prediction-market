@@ -18,6 +18,13 @@ export interface CreateMarketParams {
     platformFeeBps: number;
     /** Number of resolvers (1–8). */
     numResolvers: number;
+    /** Market title (1–128 UTF-8 bytes). */
+    title: string;
+    /**
+     * Optional category PDA — omit or pass `null` for uncategorized.
+     * Must be an active `MarketCategory` account when set.
+     */
+    marketCategory?: PublicKey | null;
 }
 export interface InitializeMarketResolversParams {
     marketId: BN;
@@ -93,6 +100,8 @@ export interface GlobalConfigAccount {
     platformTreasury: PublicKey;
     /** Flat SOL fee charged per mint/redeem transaction (lamports). */
     platformFeeLamports: BN;
+    /** Monotonic counter for `create_market_category` — must match the next category id. */
+    nextCategoryId: BN;
 }
 export interface MarketAccount {
     collateralMint: PublicKey;
@@ -109,6 +118,9 @@ export interface MarketAccount {
     creatorFeeAccount: PublicKey;
     platformFeeBps: number;
     bump: number;
+    title: string;
+    /** `Pubkey::default()` when uncategorized. */
+    category: PublicKey;
 }
 export interface ResolverAccount {
     resolverPubkey: PublicKey;

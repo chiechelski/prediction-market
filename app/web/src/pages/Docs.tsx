@@ -78,6 +78,8 @@ const { marketPda } = await client.createMarket(
     creatorFeeBps: 50,
     platformFeeBps: 0,
     numResolvers: 1,
+    title: 'Will it rain tomorrow?',
+    marketCategory: null,
   }
 );
 await client.initializeMarketResolvers(marketPda, { marketId, resolverPubkeys, numResolvers });

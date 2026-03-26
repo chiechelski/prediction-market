@@ -3,7 +3,7 @@
 use anchor_lang::prelude::*;
 
 /// Reserved tail on `GlobalConfig` for future fields without `realloc`.
-pub const GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING: usize = 64;
+pub const GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING: usize = 56;
 
 /// `8` discriminator + serialized fields + padding (see `GlobalConfig`).
 pub const GLOBAL_CONFIG_ACCOUNT_SPACE: usize = 8 // discriminator
@@ -12,6 +12,7 @@ pub const GLOBAL_CONFIG_ACCOUNT_SPACE: usize = 8 // discriminator
     + 2   // platform_fee_bps (u16)
     + 32  // platform_treasury (Pubkey)
     + 8   // platform_fee_lamports (u64)
+    + 8   // next_category_id (u64)
     + GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING;
 
 #[account]
@@ -24,6 +25,8 @@ pub struct GlobalConfig {
     pub platform_treasury: Pubkey,
     /// Flat SOL fee (lamports) per user mint / redeem.
     pub platform_fee_lamports: u64,
+    /// Next id for `MarketCategory` PDAs (`[b"market-category", id.to_le_bytes()]`).
+    pub next_category_id: u64,
     pub _padding: [u8; GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING],
 }
 
@@ -54,6 +57,7 @@ mod tests {
             platform_fee_bps: 0,
             platform_treasury: Pubkey::new_unique(),
             platform_fee_lamports: 0,
+            next_category_id: 0,
             _padding: [0u8; GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING],
         };
         let body = cfg.try_to_vec().expect("serialize");

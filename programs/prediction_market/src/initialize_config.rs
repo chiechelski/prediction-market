@@ -18,6 +18,7 @@ pub fn handler(
     config.platform_fee_bps = platform_fee_bps;
     config.platform_treasury = platform_treasury;
     config.platform_fee_lamports = platform_fee_lamports;
+    config.next_category_id = 0;
     config._padding = [0u8; GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING];
     Ok(())
 }

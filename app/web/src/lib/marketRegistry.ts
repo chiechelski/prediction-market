@@ -14,7 +14,12 @@ export type RegisteredMarket = {
   creator: string;
   /** u64 used in market PDA seeds */
   marketId: string;
+  /** Human-readable market title (shown in lists and detail). */
+  title?: string;
+  /** Slash-separated outcome labels, e.g. "Yes / No" — used for outcome chips. */
   label?: string;
+  /** Display label for filters; local-only (mirrors on-chain category name when possible). */
+  category?: string;
   createdAt: number;
 };
 

@@ -89,3 +89,10 @@ export const deriveUserProfile = (programId: PublicKey, wallet: PublicKey): Publ
     [Buffer.from('user-profile'), wallet.toBuffer()],
     programId
   )[0];
+
+/** Market category PDA — seeds: `["market-category", category_id u64 LE]`. */
+export const deriveMarketCategory = (programId: PublicKey, categoryId: BN): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('market-category'), categoryId.toArrayLike(Buffer, 'le', 8)],
+    programId
+  )[0];

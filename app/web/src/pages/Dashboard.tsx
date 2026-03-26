@@ -9,14 +9,18 @@ import {
 } from '@/lib/marketRegistry';
 import {
   fetchAllMarketsFromChain,
+  fetchMarketCategories,
   mergeRegistryAndChain,
+  categoryNameMap,
   getMarketStatus,
   formatTimeLeft,
   type ChainMarketRow,
+  type ChainMarketCategory,
   type DashboardMarketEntry,
   type MarketStatus,
 } from '@/lib/marketDiscovery';
 import { findResolverSlot } from '@/lib/marketActions';
+import { UNCATEGORIZED_PUBKEY_STR } from '@/lib/marketCategories';
 
 type Tab = 'markets' | 'creator' | 'judges';
 type StatusFilter = 'all' | 'open' | 'closing-soon' | 'closed' | 'resolved' | 'voided';
@@ -75,6 +79,14 @@ function StatusChip({ status }: { status: MarketStatus }) {
 }
 
 // ── Market Card ───────────────────────────────────────────────────────────────
+function marketDisplayTitle(m: DashboardMarketEntry): string {
+  const t = m.title?.trim();
+  if (t) return t;
+  const l = m.label?.trim();
+  if (l) return l;
+  return 'Market';
+}
+
 function MarketCard({ m }: { m: DashboardMarketEntry }) {
   const status = getMarketStatus(m);
   const outcomes = parseOutcomeLabels(m.label, m.outcomeCount ?? 2);
@@ -125,13 +137,20 @@ function MarketCard({ m }: { m: DashboardMarketEntry }) {
       </div>
 
       {/* Market title */}
-      <h3
-        className={`font-headline text-xl font-bold leading-snug mb-6 flex-1 relative z-10 ${
-          isResolved || status === 'voided' ? 'text-on-surface/60' : 'text-on-surface'
-        }`}
-      >
-        {m.label}
-      </h3>
+      <div className="mb-8 flex flex-col gap-2 relative z-10">
+        {m.category && (
+          <span className="inline-flex w-fit items-center rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-primary">
+            {m.category}
+          </span>
+        )}
+        <h3
+          className={`font-headline text-xl font-bold leading-snug flex-1 ${
+            isResolved || status === 'voided' ? 'text-on-surface/60' : 'text-on-surface'
+          }`}
+        >
+          {marketDisplayTitle(m)}
+        </h3>
+      </div>
 
       {/* Outcome buttons */}
       <div className="relative z-10 mb-6">
@@ -231,11 +250,21 @@ export default function Dashboard({ tab }: { tab: Tab }) {
   const wallet = useWallet();
   const [all, setAll] = useState<RegisteredMarket[]>([]);
   const [chainRows, setChainRows] = useState<ChainMarketRow[] | null>(null);
+  const [chainCategoryLabels, setChainCategoryLabels] = useState<
+    Map<string, string>
+  >(new Map());
+  const [chainCategories, setChainCategories] = useState<ChainMarketCategory[]>(
+    []
+  );
   const [chainLoading, setChainLoading] = useState(false);
   const [chainError, setChainError] = useState<string | null>(null);
   const [judgeList, setJudgeList] = useState<DashboardMarketEntry[] | null>(null);
   const [judgesLoading, setJudgesLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  /** `'__uncat__'` = no category label; otherwise exact `m.category` string. */
+  const [categoryFilter, setCategoryFilter] = useState<'all' | '__uncat__' | string>(
+    'all'
+  );
   const [search, setSearch] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -269,21 +298,36 @@ export default function Dashboard({ tab }: { tab: Tab }) {
     let cancelled = false;
     setChainLoading(true);
     setChainError(null);
-    fetchAllMarketsFromChain(connection)
-      .then((rows) => { if (!cancelled) setChainRows(rows); })
+    Promise.all([
+      fetchAllMarketsFromChain(connection),
+      fetchMarketCategories(connection),
+    ])
+      .then(([rows, cats]) => {
+        if (!cancelled) {
+          setChainRows(rows);
+          setChainCategories(cats);
+          setChainCategoryLabels(categoryNameMap(cats));
+        }
+      })
       .catch((e: Error) => {
         if (!cancelled) {
           setChainError(e?.message ?? 'Failed to load markets from chain');
           setChainRows([]);
+          setChainCategories([]);
+          setChainCategoryLabels(new Map());
         }
       })
-      .finally(() => { if (!cancelled) setChainLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        if (!cancelled) setChainLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [connection]);
 
   const mergedMarkets = useMemo(
-    () => mergeRegistryAndChain(all, chainRows ?? []),
-    [all, chainRows]
+    () => mergeRegistryAndChain(all, chainRows ?? [], chainCategoryLabels),
+    [all, chainRows, chainCategoryLabels]
   );
 
   useEffect(() => {
@@ -303,7 +347,15 @@ export default function Dashboard({ tab }: { tab: Tab }) {
           marketPda: row.marketPda.toBase58(),
           creator: row.creator,
           marketId: reg?.marketId ?? null,
-          label: reg?.label ?? `On-chain ${row.marketPda.toBase58().slice(0, 4)}…`,
+          label: reg?.label ?? '',
+          title:
+            row.title?.trim() ||
+            reg?.title ||
+            `On-chain ${row.marketPda.toBase58().slice(0, 4)}…`,
+          category:
+            row.categoryPubkey === UNCATEGORIZED_PUBKEY_STR
+              ? reg?.category
+              : chainCategoryLabels.get(row.categoryPubkey) ?? reg?.category,
           createdAt: reg?.createdAt ?? 0,
           outcomeCount: row.outcomeCount,
           closeAt: row.closeAt,
@@ -317,7 +369,7 @@ export default function Dashboard({ tab }: { tab: Tab }) {
       if (!cancelled) { setJudgeList(matches); setJudgesLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [tab, connection, wallet, wallet.publicKey, chainRows, all]);
+  }, [tab, connection, wallet, wallet.publicKey, chainRows, all, chainCategoryLabels]);
 
   const tabs: { id: Tab; label: string; to: string }[] = [
     { id: 'markets', label: 'All markets', to: '/markets' },
@@ -338,17 +390,32 @@ export default function Dashboard({ tab }: { tab: Tab }) {
     if (statusFilter !== 'all') {
       list = list.filter((m) => getMarketStatus(m) === statusFilter);
     }
+    if (categoryFilter === '__uncat__') {
+      list = list.filter((m) => !m.category);
+    } else if (categoryFilter !== 'all') {
+      list = list.filter((m) => m.category === categoryFilter);
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
         (m) =>
           m.label.toLowerCase().includes(q) ||
+          (m.title?.toLowerCase().includes(q) ?? false) ||
+          (m.category?.toLowerCase().includes(q) ?? false) ||
           m.marketPda.toLowerCase().includes(q) ||
           m.creator.toLowerCase().includes(q)
       );
     }
     return list;
-  }, [baseList, statusFilter, search]);
+  }, [baseList, statusFilter, categoryFilter, search]);
+
+  const categoryChipNames = useMemo(() => {
+    const names = chainCategories
+      .filter((c) => c.active)
+      .map((c) => c.name)
+      .filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [chainCategories]);
 
   const listLoading = tab === 'judges' ? judgesLoading : chainLoading;
 
@@ -385,43 +452,84 @@ export default function Dashboard({ tab }: { tab: Tab }) {
               <p className="text-outline font-medium">{pageSubtitle}</p>
             </div>
 
-            {/* Status filter dropdown */}
-            <div ref={filterRef} className="relative">
-              <button
-                onClick={() => setFilterOpen(v => !v)}
-                className="inline-flex items-center gap-2 h-9 rounded-lg bg-surface-container-highest px-4 text-xs font-bold text-primary hover:bg-surface-variant transition-colors"
-              >
-                <span className="uppercase tracking-wider">
-                  {statusFilters.find(f => f.id === statusFilter)?.label ?? 'All'}
-                </span>
-                <svg
-                  className={`h-4 w-4 text-outline transition-transform ${filterOpen ? 'rotate-180' : ''}`}
-                  viewBox="0 0 20 20" fill="currentColor"
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Category filter */}
+              <div className="inline-flex flex-wrap gap-1 rounded-lg bg-surface-container-highest p-1">
+                <button
+                  type="button"
+                  onClick={() => setCategoryFilter('all')}
+                  className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-colors ${
+                    categoryFilter === 'all'
+                      ? 'bg-surface-container text-on-surface'
+                      : 'text-outline hover:text-on-surface'
+                  }`}
                 >
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
-              {filterOpen && (
-                <div className="absolute right-0 top-full mt-2 z-50 w-44 rounded-xl border border-outline-variant/20 bg-surface-container-low py-1.5 shadow-xl shadow-black/40">
-                  {statusFilters.map(({ id, label }) => (
-                    <button
-                      key={id}
-                      onClick={() => { setStatusFilter(id); setFilterOpen(false); }}
-                      className={`w-full flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
-                        statusFilter === id
-                          ? 'text-primary bg-surface-container-highest'
-                          : 'text-outline hover:text-on-surface hover:bg-surface-container-highest'
-                      }`}
-                    >
-                      {statusFilter === id && (
-                        <span className="material-symbols-outlined text-[14px]">check</span>
-                      )}
-                      {statusFilter !== id && <span className="w-[14px]" />}
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                  All categories
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCategoryFilter('__uncat__')}
+                  className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-colors ${
+                    categoryFilter === '__uncat__'
+                      ? 'bg-surface-container text-on-surface'
+                      : 'text-outline hover:text-on-surface'
+                  }`}
+                >
+                  Uncategorized
+                </button>
+                {categoryChipNames.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategoryFilter(c)}
+                    className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-colors ${
+                      categoryFilter === c
+                        ? 'bg-surface-container text-on-surface'
+                        : 'text-outline hover:text-on-surface'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+              {/* Status filter dropdown */}
+              <div ref={filterRef} className="relative">
+                <button
+                  onClick={() => setFilterOpen(v => !v)}
+                  className="inline-flex items-center gap-2 h-9 rounded-lg bg-surface-container-highest px-4 text-xs font-bold text-primary hover:bg-surface-variant transition-colors"
+                >
+                  <span className="uppercase tracking-wider">
+                    {statusFilters.find(f => f.id === statusFilter)?.label ?? 'All'}
+                  </span>
+                  <svg
+                    className={`h-4 w-4 text-outline transition-transform ${filterOpen ? 'rotate-180' : ''}`}
+                    viewBox="0 0 20 20" fill="currentColor"
+                  >
+                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                {filterOpen && (
+                  <div className="absolute right-0 top-full mt-2 z-50 w-44 rounded-xl border border-outline-variant/20 bg-surface-container-low py-1.5 shadow-xl shadow-black/40">
+                    {statusFilters.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => { setStatusFilter(id); setFilterOpen(false); }}
+                        className={`w-full flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
+                          statusFilter === id
+                            ? 'text-primary bg-surface-container-highest'
+                            : 'text-outline hover:text-on-surface hover:bg-surface-container-highest'
+                        }`}
+                      >
+                        {statusFilter === id && (
+                          <span className="material-symbols-outlined text-[14px]">check</span>
+                        )}
+                        {statusFilter !== id && <span className="w-[14px]" />}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

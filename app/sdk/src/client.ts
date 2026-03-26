@@ -178,6 +178,7 @@ export class PredictionMarketClient {
         creatorFeeBps: params.creatorFeeBps,
         platformFeeBps: params.platformFeeBps,
         numResolvers: params.numResolvers,
+        title: params.title,
       })
       .accounts({
         payer: this.walletKey,
@@ -188,6 +189,7 @@ export class PredictionMarketClient {
         creatorFeeAccount,
         globalConfig: this.globalConfig,
         allowedMint: deriveAllowedMint(this.program.programId, collateralMint),
+        marketCategory: params.marketCategory ?? null,
         collateralTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,

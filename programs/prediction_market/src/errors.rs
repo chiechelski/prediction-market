@@ -73,4 +73,22 @@ pub enum PredictionMarketError {
 
     #[msg("URL exceeds 100 bytes")]
     UrlTooLong,
+
+    #[msg("Market title cannot be empty")]
+    EmptyTitle,
+
+    #[msg("Market title exceeds 128 bytes")]
+    TitleTooLong,
+
+    #[msg("Market category is inactive")]
+    MarketCategoryInactive,
+
+    #[msg("Market category name cannot be empty")]
+    MarketCategoryNameEmpty,
+
+    #[msg("Market category name exceeds max length")]
+    MarketCategoryNameTooLong,
+
+    #[msg("category_id must match global_config.next_category_id")]
+    InvalidCategoryId,
 }

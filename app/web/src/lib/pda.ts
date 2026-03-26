@@ -129,3 +129,15 @@ export function deriveUserProfile(
   );
   return pda;
 }
+
+/** PDA for `MarketCategory` — seeds: `["market-category", id LE u8×8]`. */
+export function deriveMarketCategory(
+  programId: PublicKey,
+  categoryId: BN
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('market-category'), categoryId.toArrayLike(Buffer, 'le', 8)],
+    programId
+  );
+  return pda;
+}

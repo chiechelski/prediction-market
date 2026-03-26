@@ -2,26 +2,10 @@
 
 use anchor_lang::prelude::*;
 
-pub const MARKET_ACCOUNT_SPACE_PADDING: usize = 40;
-
-pub const MARKET_ACCOUNT_SPACE: usize = 8 // discriminator
-    + 32  // collateral_mint (Pubkey)
-    + 1   // collateral_decimals (u8)
-    + 32  // vault (Pubkey)
-    + 1   // outcome_count (u8)
-    + 8   // close_at (i64)
-    + 1   // closed (bool)
-    + 2   // resolved_outcome_index (Option<u8>, max: Some + u8)
-    + 1   // voided (bool)
-    + 1   // resolution_threshold (u8)
-    + 32  // creator (Pubkey)
-    + 2   // creator_fee_bps (u16)
-    + 32  // creator_fee_account (Pubkey)
-    + 2   // platform_fee_bps (u16)
-    + 1   // bump (u8)
-    + MARKET_ACCOUNT_SPACE_PADDING;
+pub const MAX_MARKET_TITLE_LEN: usize = 128;
 
 #[account]
+#[derive(InitSpace)]
 pub struct Market {
     pub collateral_mint: Pubkey,
     pub collateral_decimals: u8,
@@ -38,11 +22,16 @@ pub struct Market {
     /// 0 = use global config default
     pub platform_fee_bps: u16,
     pub bump: u8,
-    pub _padding: [u8; MARKET_ACCOUNT_SPACE_PADDING],
+    /// UTF-8 title shown in UIs (max 128 bytes).
+    #[max_len(MAX_MARKET_TITLE_LEN)]
+    pub title: String,
+    /// `MarketCategory` PDA, or `Pubkey::default()` for uncategorized.
+    pub category: Pubkey,
 }
 
 impl Market {
-    pub const LEN: usize = MARKET_ACCOUNT_SPACE;
+    /// `8` (discriminator) + `InitSpace` body
+    pub const LEN: usize = 8 + Market::INIT_SPACE;
 
     pub fn is_closed(&self, clock: &Clock) -> bool {
         self.closed || clock.unix_timestamp >= self.close_at
@@ -86,8 +75,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn market_account_space_matches_layout() {
-        // Use `Some` so serialized size matches `MARKET_ACCOUNT_SPACE` (worst case for Option<u8>).
+    fn market_account_space_matches_init_space() {
         let m = Market {
             collateral_mint: Pubkey::new_unique(),
             collateral_decimals: 6,
@@ -103,9 +91,10 @@ mod tests {
             creator_fee_account: Pubkey::new_unique(),
             platform_fee_bps: 0,
             bump: 255,
-            _padding: [0u8; MARKET_ACCOUNT_SPACE_PADDING],
+            title: "a".repeat(MAX_MARKET_TITLE_LEN),
+            category: Pubkey::new_unique(),
         };
         let body = m.try_to_vec().expect("serialize");
-        assert_eq!(8 + body.len(), MARKET_ACCOUNT_SPACE);
+        assert_eq!(8 + body.len(), Market::LEN);
     }
 }

@@ -12,6 +12,7 @@ import { fetchIdl } from '@/lib/program';
 import {
   deriveAllowedMint,
   deriveMarket,
+  deriveMarketCategory,
   deriveVault,
   deriveGlobalConfig,
   deriveAllOutcomeMints,
@@ -21,6 +22,7 @@ import {
   deriveResolutionVote,
   deriveUserProfile,
 } from '@/lib/pda';
+import { assertSolBalanceForPayer } from '@/lib/solBalance';
 import {
   ataAddress,
   ensureAssociatedTokenAccount,
@@ -70,6 +72,51 @@ export async function getProgram(
   return new Program(idl, provider);
 }
 
+/**
+ * Create a `MarketCategory` PDA. `categoryId` must equal `global_config.next_category_id`.
+ */
+export async function createMarketCategoryTx(
+  connection: Connection,
+  wallet: WalletContextState,
+  categoryId: BN,
+  name: string
+): Promise<void> {
+  const program = await getProgram(connection, wallet);
+  if (!wallet.publicKey) throw new Error('Wallet required');
+  const globalConfig = deriveGlobalConfig(program.programId);
+  const marketCategory = deriveMarketCategory(program.programId, categoryId);
+  await program.methods
+    .createMarketCategory(categoryId, name)
+    .accounts({
+      globalConfig,
+      marketCategory,
+      authority: wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+export async function updateMarketCategoryTx(
+  connection: Connection,
+  wallet: WalletContextState,
+  categoryId: BN,
+  name: string,
+  active: boolean
+): Promise<void> {
+  const program = await getProgram(connection, wallet);
+  if (!wallet.publicKey) throw new Error('Wallet required');
+  const globalConfig = deriveGlobalConfig(program.programId);
+  const marketCategory = deriveMarketCategory(program.programId, categoryId);
+  await program.methods
+    .updateMarketCategory(name, active)
+    .accounts({
+      globalConfig,
+      marketCategory,
+      authority: wallet.publicKey,
+    })
+    .rpc();
+}
+
 export async function createMarketFullFlow(
   connection: Connection,
   wallet: WalletContextState,
@@ -83,10 +130,15 @@ export async function createMarketFullFlow(
     collateralMint: PublicKey;
     /** First resolver is usually the connected wallet; length must equal numResolvers */
     resolverPubkeys: PublicKey[];
+    title: string;
+    /** Omit or `null` for uncategorized (`Pubkey::default()` on-chain). */
+    marketCategory: PublicKey | null;
   }
 ): Promise<{ marketPda: PublicKey; vault: PublicKey }> {
   const program = await getProgram(connection, wallet);
   if (!wallet.publicKey) throw new Error('Wallet required');
+
+  await assertSolBalanceForPayer(connection, wallet.publicKey);
 
   const numResolvers = params.resolverPubkeys.length;
   if (numResolvers < 1 || numResolvers > 8) {
@@ -126,6 +178,7 @@ export async function createMarketFullFlow(
       creatorFeeBps: params.creatorFeeBps,
       platformFeeBps: params.platformFeeBps,
       numResolvers,
+      title: params.title,
     })
     .accounts({
       payer: creator,
@@ -136,6 +189,9 @@ export async function createMarketFullFlow(
       creatorFeeAccount: creatorFeeAta,
       globalConfig,
       allowedMint,
+      ...(params.marketCategory != null
+        ? { marketCategory: params.marketCategory }
+        : {}),
       collateralTokenProgram,
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,

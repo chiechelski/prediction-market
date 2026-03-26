@@ -34,6 +34,7 @@ import {
   deriveAllResolvers,
   deriveOutcomeTally,
   deriveResolutionVote,
+  deriveMarketCategory,
 } from './test-helpers';
 
 // ─── Shared test state ───────────────────────────────────────────────────────
@@ -201,6 +202,20 @@ describe('admin', () => {
 // ─── 3. Market creation (3 steps) ────────────────────────────────────────────
 
 describe('create market', () => {
+  const category0 = deriveMarketCategory(program.programId, new BN(0));
+
+  before(async () => {
+    await program.methods
+      .createMarketCategory(new BN(0), 'Crypto')
+      .accounts({
+        globalConfig: globalConfigPda,
+        marketCategory: category0,
+        authority: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+  });
+
   it('step 1: creates market + vault', async () => {
     const closeAt = new BN(Math.floor(Date.now() / 1000) + 7200);
 
@@ -213,6 +228,7 @@ describe('create market', () => {
         creatorFeeBps: CREATOR_FEE_BPS,
         platformFeeBps: 0,
         numResolvers: 1,
+        title: 'Happy path market',
       })
       .accounts({
         payer: payer.publicKey,
@@ -223,6 +239,7 @@ describe('create market', () => {
         creatorFeeAccount: creatorFeeAta,
         globalConfig: globalConfigPda,
         allowedMint: allowedMintPda,
+        marketCategory: category0,
         collateralTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -231,6 +248,8 @@ describe('create market', () => {
 
     const market = await program.account.market.fetch(marketPda);
     assert.equal(market.outcomeCount, 2);
+    assert.equal(market.title, 'Happy path market');
+    assert.isTrue(market.category.equals(category0));
     assert.isFalse(market.closed);
     assert.isFalse(market.voided);
     assert.isNull(market.resolvedOutcomeIndex);
@@ -565,6 +584,7 @@ describe('void market', () => {
         creatorFeeBps: 0,
         platformFeeBps: 0,
         numResolvers: 1,
+        title: 'Void test market',
       })
       .accounts({
         payer: payer.publicKey,
@@ -575,6 +595,7 @@ describe('void market', () => {
         creatorFeeAccount: creatorFeeAta,
         globalConfig: globalConfigPda,
         allowedMint: allowedMintPda,
+        marketCategory: null,
         collateralTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,

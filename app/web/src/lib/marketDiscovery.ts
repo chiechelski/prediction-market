@@ -1,6 +1,8 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
+import BN from 'bn.js';
 import { fetchIdl } from '@/lib/program';
+import { UNCATEGORIZED_PUBKEY_STR } from '@/lib/marketCategories';
 import type { RegisteredMarket } from '@/lib/marketRegistry';
 
 const DUMMY_WALLET = {
@@ -9,22 +11,36 @@ const DUMMY_WALLET = {
   signAllTransactions: async (ts: unknown) => ts,
 };
 
+export type ChainMarketCategory = {
+  pubkey: PublicKey;
+  id: string;
+  name: string;
+  active: boolean;
+};
+
 export type ChainMarketRow = {
   marketPda: PublicKey;
   creator: string;
   outcomeCount: number;
-  closeAt: number;       // unix seconds
+  closeAt: number;
   closed: boolean;
   resolvedOutcomeIndex: number | null;
   voided: boolean;
   resolutionThreshold: number;
+  title: string;
+  /** Base58 category PDA; `1111…` = uncategorized. */
+  categoryPubkey: string;
 };
 
 export type DashboardMarketEntry = {
   marketPda: string;
   creator: string;
   marketId: string | null;
+  /** Slash-separated outcome labels for UI chips. */
   label: string;
+  /** Display title (falls back to label for legacy registry rows). */
+  title?: string;
+  category?: string;
   createdAt: number;
   outcomeCount?: number;
   closeAt?: number;
@@ -65,6 +81,34 @@ function shortPk(pda: string) {
   return `${pda.slice(0, 4)}…${pda.slice(-4)}`;
 }
 
+export async function fetchMarketCategories(
+  connection: Connection
+): Promise<ChainMarketCategory[]> {
+  const idl = await fetchIdl();
+  const provider = new AnchorProvider(connection, DUMMY_WALLET as any, {
+    commitment: 'confirmed',
+  });
+  const program = new Program(idl, provider);
+  const rows = await (program.account as any).marketCategory.all();
+  return rows.map((row: { publicKey: PublicKey; account: any }) => ({
+    pubkey: row.publicKey,
+    id: (row.account.id as BN).toString(10),
+    name: String(row.account.name ?? ''),
+    active: row.account.active as boolean,
+  }));
+}
+
+/** Map category PDA (base58) → display name (active categories only). */
+export function categoryNameMap(
+  cats: ChainMarketCategory[]
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const c of cats) {
+    if (c.active) m.set(c.pubkey.toBase58(), c.name);
+  }
+  return m;
+}
+
 export async function fetchAllMarketsFromChain(
   connection: Connection
 ): Promise<ChainMarketRow[]> {
@@ -87,12 +131,26 @@ export async function fetchAllMarketsFromChain(
         : null,
     voided: row.account.voided as boolean,
     resolutionThreshold: row.account.resolutionThreshold as number,
+    title: String(row.account.title ?? ''),
+    categoryPubkey: (row.account.category as PublicKey).toBase58(),
   }));
+}
+
+function resolveCategoryLabel(
+  categoryPubkey: string,
+  labels: Map<string, string>,
+  registryFallback?: string
+): string | undefined {
+  if (categoryPubkey === UNCATEGORIZED_PUBKEY_STR) {
+    return registryFallback;
+  }
+  return labels.get(categoryPubkey) ?? registryFallback;
 }
 
 export function mergeRegistryAndChain(
   registry: RegisteredMarket[],
-  chain: ChainMarketRow[]
+  chain: ChainMarketRow[],
+  labels: Map<string, string>
 ): DashboardMarketEntry[] {
   const seen = new Set<string>();
   const out: DashboardMarketEntry[] = [];
@@ -100,11 +158,16 @@ export function mergeRegistryAndChain(
   for (const r of registry) {
     seen.add(r.marketPda);
     const c = chain.find((x) => x.marketPda.toBase58() === r.marketPda);
+    const outcomeLabel = r.label ?? 'Yes / No';
     out.push({
       marketPda: r.marketPda,
       creator: r.creator,
       marketId: r.marketId,
-      label: r.label ?? 'Market',
+      label: outcomeLabel,
+      title: c?.title?.trim() || r.title,
+      category: c
+        ? resolveCategoryLabel(c.categoryPubkey, labels, r.category)
+        : r.category,
       createdAt: r.createdAt,
       outcomeCount: c?.outcomeCount,
       closeAt: c?.closeAt,
@@ -123,7 +186,9 @@ export function mergeRegistryAndChain(
       marketPda: key,
       creator: c.creator,
       marketId: null,
-      label: `On-chain ${shortPk(key)}`,
+      label: '',
+      title: c.title?.trim() || `On-chain ${shortPk(key)}`,
+      category: resolveCategoryLabel(c.categoryPubkey, labels, undefined),
       createdAt: 0,
       outcomeCount: c.outcomeCount,
       closeAt: c.closeAt,

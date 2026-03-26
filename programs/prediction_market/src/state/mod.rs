@@ -1,6 +1,7 @@
 pub use allowed_mint::*;
 pub use global_config::*;
 pub use market::*;
+pub use market_category::*;
 pub use outcome_tally::*;
 pub use resolution_vote::*;
 pub use resolver::*;
@@ -9,6 +10,7 @@ pub use user_profile::{UserProfile, USER_PROFILE_SPACE, MAX_DISPLAY_NAME_LEN, MA
 pub mod allowed_mint;
 pub mod global_config;
 pub mod market;
+pub mod market_category;
 pub mod outcome_tally;
 pub mod resolution_vote;
 pub mod resolver;

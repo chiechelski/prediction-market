@@ -3,7 +3,10 @@
 use crate::state::*;
 use anchor_lang::prelude::*;
 
-/// Third step of market creation: initializes the 8 resolver PDAs and writes the provided pubkeys.
+/// Second step of market creation: initializes **8** resolver PDAs and writes the first
+/// `num_resolvers` pubkeys. The protocol fixes **8** on-chain slots (max resolvers); unused
+/// slots stay allocated but are ignored. This is why a 3-outcome market still pays rent for
+/// eight resolver accounts in this transaction (same pattern as the 8 outcome mints).
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct InitializeMarketResolversArgs {
     pub market_id: u64,

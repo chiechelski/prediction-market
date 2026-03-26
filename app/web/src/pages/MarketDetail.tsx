@@ -31,6 +31,9 @@ export default function MarketDetail() {
   const [winHuman, setWinHuman] = useState('');
   const [voteOutcome, setVoteOutcome] = useState(0);
   const [resolverSlot, setResolverSlot] = useState<number | null>(null);
+  const [resolvedCategoryName, setResolvedCategoryName] = useState<
+    string | null
+  >(null);
 
   const registry = marketKey ? getRegisteredMarket(marketKey) : undefined;
   const effectiveMarketId =
@@ -68,6 +71,40 @@ export default function MarketDetail() {
   }, [loadMarket]);
 
   useEffect(() => {
+    if (!market?.category) {
+      setResolvedCategoryName(null);
+      return;
+    }
+    const catPk = market.category as PublicKey;
+    if (catPk.equals(PublicKey.default)) {
+      setResolvedCategoryName(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const idl = await fetchIdl();
+        const dummy = {
+          publicKey: new PublicKey('11111111111111111111111111111111'),
+          signTransaction: async (t: unknown) => t,
+          signAllTransactions: async (ts: unknown) => ts,
+        };
+        const provider = new AnchorProvider(connection, dummy as any, {
+          commitment: 'confirmed',
+        });
+        const program = new Program(idl, provider);
+        const acc = await (program.account as any).marketCategory.fetch(catPk);
+        if (!cancelled) setResolvedCategoryName(String(acc.name ?? ''));
+      } catch {
+        if (!cancelled) setResolvedCategoryName(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, market]);
+
+  useEffect(() => {
     if (!marketKey || !wallet.publicKey || !market) {
       setResolverSlot(null);
       return;
@@ -90,15 +127,22 @@ export default function MarketDetail() {
     ? new BN(effectiveMarketId, 10)
     : null;
 
-  const status = market
-    ? market.voided
-      ? 'voided'
-      : market.resolvedOutcomeIndex != null
-        ? 'resolved'
-        : market.closed
-          ? 'closed'
-          : 'open'
-    : 'unknown';
+  const status: 'voided' | 'resolved' | 'closed' | 'open' | 'closing-soon' | 'unknown' =
+    market
+      ? market.voided
+        ? 'voided'
+        : market.resolvedOutcomeIndex != null
+          ? 'resolved'
+          : market.closed
+            ? 'closed'
+            : (() => {
+                const closeAt = Number(market.closeAt);
+                const now = Date.now() / 1000;
+                const left = closeAt - now;
+                if (left > 0 && left < 86400 * 2) return 'closing-soon';
+                return 'open';
+              })()
+      : 'unknown';
 
   const collateralMint: PublicKey | null = market
     ? (market.collateralMint as PublicKey)
@@ -249,6 +293,15 @@ export default function MarketDetail() {
   }
 
   const outcomeCount = Number(market.outcomeCount);
+  const chainTitle =
+    typeof market.title === 'string' ? market.title.trim() : '';
+  const chainCategoryLabel = resolvedCategoryName?.trim() ?? '';
+  const displayTitle =
+    chainTitle ||
+    registry?.title?.trim() ||
+    `Market ${marketKey?.slice(0, 8)}…`;
+  const displayCategory = chainCategoryLabel || registry?.category;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface-dim px-4 pt-8 pb-12 md:px-6 lg:px-8">
     <div className="mx-auto w-full max-w-7xl">
@@ -262,8 +315,15 @@ export default function MarketDetail() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="font-headline text-2xl font-extrabold tracking-tight text-on-surface italic">
-              Market {marketKey?.slice(0, 8)}…
+              {displayTitle}
             </h1>
+            {displayCategory && (
+              <p className="mt-1">
+                <span className="inline-flex rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-primary">
+                  {displayCategory}
+                </span>
+              </p>
+            )}
             <p className="mt-1 text-on-surface-variant">
               {outcomeCount} outcomes · M-of-N: {market.resolutionThreshold}
             </p>

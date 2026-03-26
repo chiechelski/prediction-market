@@ -16,6 +16,8 @@ pub struct CreateMarketArgs {
     pub platform_fee_bps: u16,
     /// Up to 8 resolver pubkeys, set during initialize_market_resolvers.
     pub num_resolvers: u8,
+    /// UTF-8 market title (1–128 bytes after trim).
+    pub title: String,
 }
 
 pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()> {
@@ -45,6 +47,20 @@ pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()>
         PredictionMarketError::InvalidFeeBps
     );
 
+    let title = args.title.trim();
+    require!(!title.is_empty(), PredictionMarketError::EmptyTitle);
+    require!(
+        title.len() <= crate::state::MAX_MARKET_TITLE_LEN,
+        PredictionMarketError::TitleTooLong
+    );
+
+    let category_pk = if let Some(ref cat) = ctx.accounts.market_category.as_ref() {
+        require!(cat.active, PredictionMarketError::MarketCategoryInactive);
+        cat.key()
+    } else {
+        Pubkey::default()
+    };
+
     let market = &mut ctx.accounts.market;
     market.collateral_mint = ctx.accounts.collateral_mint.key();
     market.collateral_decimals = ctx.accounts.collateral_mint.decimals;
@@ -60,7 +76,8 @@ pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()>
     market.creator_fee_account = ctx.accounts.creator_fee_account.key();
     market.platform_fee_bps = args.platform_fee_bps;
     market.bump = ctx.bumps.market;
-    market._padding = [0u8; MARKET_ACCOUNT_SPACE_PADDING];
+    market.title = title.to_string();
+    market.category = category_pk;
 
     Ok(())
 }
@@ -103,6 +120,9 @@ pub struct CreateMarket<'info> {
 
     #[account(seeds = [b"allowed-mint", collateral_mint.key().as_ref()], bump)]
     pub allowed_mint: Account<'info, AllowedMint>,
+
+    /// Optional — omit account for uncategorized (`category = Pubkey::default()`).
+    pub market_category: Option<Account<'info, MarketCategory>>,
 
     pub collateral_token_program: Interface<'info, TokenInterface>,
 

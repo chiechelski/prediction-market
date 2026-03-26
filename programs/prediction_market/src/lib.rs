@@ -9,6 +9,7 @@ mod utils;
 pub mod add_allowed_collateral_mint;
 pub mod close_market_early;
 pub mod create_market;
+pub mod create_market_category;
 pub mod finalize_resolution;
 pub mod initialize_config;
 pub mod initialize_market_mints;
@@ -19,6 +20,7 @@ pub mod redeem_winning;
 pub mod remove_allowed_collateral_mint;
 pub mod revoke_resolution_vote;
 pub mod update_config;
+pub mod update_market_category;
 pub mod void_market;
 pub mod vote_resolution;
 pub mod upsert_user_profile;
@@ -28,6 +30,7 @@ pub mod verify_user_profile;
 pub use add_allowed_collateral_mint::AddAllowedCollateralMint;
 pub use close_market_early::{CloseMarketEarly, CloseMarketEarlyArgs};
 pub use create_market::{CreateMarket, CreateMarketArgs};
+pub use create_market_category::CreateMarketCategory;
 pub use finalize_resolution::{FinalizeResolution, FinalizeResolutionArgs};
 pub use initialize_config::InitializeConfig;
 pub use initialize_market_mints::{InitializeMarketMints, InitializeMarketMintsArgs};
@@ -38,6 +41,7 @@ pub use redeem_winning::{RedeemWinning, RedeemWinningArgs};
 pub use remove_allowed_collateral_mint::RemoveAllowedCollateralMint;
 pub use revoke_resolution_vote::{RevokeResolutionVote, RevokeResolutionVoteArgs};
 pub use update_config::UpdateConfig;
+pub use update_market_category::UpdateMarketCategory;
 pub use void_market::{VoidMarket, VoidMarketArgs};
 pub use vote_resolution::{VoteResolution, VoteResolutionArgs};
 pub use upsert_user_profile::UpsertUserProfile;
@@ -55,6 +59,12 @@ pub mod __client_accounts_close_market_early {
 }
 pub mod __client_accounts_create_market {
     pub use crate::create_market::__client_accounts_create_market::*;
+}
+pub mod __client_accounts_create_market_category {
+    pub use crate::create_market_category::__client_accounts_create_market_category::*;
+}
+pub mod __client_accounts_update_market_category {
+    pub use crate::update_market_category::__client_accounts_update_market_category::*;
 }
 pub mod __client_accounts_finalize_resolution {
     pub use crate::finalize_resolution::__client_accounts_finalize_resolution::*;
@@ -132,6 +142,22 @@ pub mod prediction_market {
 
     pub fn remove_allowed_collateral_mint(ctx: Context<RemoveAllowedCollateralMint>) -> Result<()> {
         remove_allowed_collateral_mint::handler(ctx)
+    }
+
+    pub fn create_market_category(
+        ctx: Context<CreateMarketCategory>,
+        category_id: u64,
+        name: String,
+    ) -> Result<()> {
+        create_market_category::handler(ctx, category_id, name)
+    }
+
+    pub fn update_market_category(
+        ctx: Context<UpdateMarketCategory>,
+        name: String,
+        active: bool,
+    ) -> Result<()> {
+        update_market_category::handler(ctx, name, active)
     }
 
     pub fn create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()> {

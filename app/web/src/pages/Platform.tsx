@@ -1,11 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { fetchIdl } from '@/lib/program';
 import { PROGRAM_ID } from '@/lib/program';
+import BN from 'bn.js';
 import { deriveGlobalConfig, deriveAllowedMint } from '@/lib/pda';
-import { getTreasuryAtaInfo, fetchUserProfile, verifyUserProfile, type UserProfileData } from '@/lib/marketActions';
+import {
+  getTreasuryAtaInfo,
+  fetchUserProfile,
+  verifyUserProfile,
+  createMarketCategoryTx,
+  updateMarketCategoryTx,
+  type UserProfileData,
+} from '@/lib/marketActions';
 
 type ConfigState = {
   authority: string;
@@ -13,7 +21,15 @@ type ConfigState = {
   platformFeeBps: number;
   platformTreasury: string;
   platformFeeLamports: number;
+  nextCategoryId: number;
 } | null;
+
+type CategoryRow = {
+  pubkey: string;
+  id: string;
+  name: string;
+  active: boolean;
+};
 
 export default function Platform() {
   const { connection } = useConnection();
@@ -37,6 +53,15 @@ export default function Platform() {
 
   const [allowedMints, setAllowedMints] = useState<string[]>([]);
   const [allowedMintsLoading, setAllowedMintsLoading] = useState(false);
+
+  const [marketCategories, setMarketCategories] = useState<CategoryRow[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryActionLoading, setCategoryActionLoading] = useState(false);
+  const [categoryActionError, setCategoryActionError] = useState<string | null>(null);
+  const [categoryDraft, setCategoryDraft] = useState<
+    Record<string, { name: string; active: boolean }>
+  >({});
 
   const [ataLookupMint, setAtaLookupMint] = useState('');
   const [ataLookupResult, setAtaLookupResult] = useState<{ ata: string; exists: boolean } | null>(null);
@@ -78,6 +103,7 @@ export default function Platform() {
             platformFeeBps: account.platformFeeBps,
             platformTreasury: account.platformTreasury.toBase58(),
             platformFeeLamports: account.platformFeeLamports?.toNumber?.() ?? 0,
+            nextCategoryId: (account.nextCategoryId as BN).toNumber(),
           });
           setSecondaryAuthority(secAuth === DEFAULT_PK ? '' : secAuth);
           setPlatformFeeBps(account.platformFeeBps);
@@ -98,6 +124,10 @@ export default function Platform() {
     config.authority === walletAddr ||
     (config.secondaryAuthority !== '' && config.secondaryAuthority === walletAddr)
   );
+
+  const SOL_USD_REF = 140;
+  const flatFeeLamports = Number.isFinite(platformFeeLamports) ? platformFeeLamports : 0;
+  const flatFeeUsdApprox = (flatFeeLamports / 1e9) * SOL_USD_REF;
 
   const handleInitConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,6 +160,7 @@ export default function Platform() {
             platformFeeBps,
             platformTreasury: treasuryPubkey.toBase58(),
             platformFeeLamports,
+            nextCategoryId: 0,
           });
     } catch (err: any) {
       setUpdateError(err?.message ?? 'Transaction failed');
@@ -162,7 +193,17 @@ export default function Platform() {
           newAuthority: wallet.publicKey, // keep same primary; user can change via the field
         })
         .rpc({ skipPreflight: false });
-      setConfig((c) => c ? { ...c, platformFeeBps, platformTreasury: treasuryPubkey.toBase58(), platformFeeLamports, secondaryAuthority: secondaryAuthority.trim() } : null);
+      setConfig((c) =>
+        c
+          ? {
+              ...c,
+              platformFeeBps,
+              platformTreasury: treasuryPubkey.toBase58(),
+              platformFeeLamports,
+              secondaryAuthority: secondaryAuthority.trim(),
+            }
+          : null
+      );
     } catch (err: any) {
       setUpdateError(err?.message ?? 'Transaction failed');
     } finally {
@@ -194,6 +235,108 @@ export default function Platform() {
   useEffect(() => {
     loadAllowedMints();
   }, [connection]);
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    try {
+      const idl = await fetchIdl();
+      const dummy = {
+        publicKey: new PublicKey('11111111111111111111111111111111'),
+        signTransaction: async (t: any) => t,
+        signAllTransactions: async (ts: any) => ts,
+      };
+      const provider = new AnchorProvider(connection, dummy as any, {
+        commitment: 'confirmed',
+      });
+      const program = new Program(idl, provider);
+      const rows = await (program.account as any).marketCategory.all();
+      const list: CategoryRow[] = rows.map((r: any) => ({
+        pubkey: r.publicKey.toBase58(),
+        id: (r.account.id as BN).toString(10),
+        name: String(r.account.name ?? ''),
+        active: r.account.active as boolean,
+      }));
+      setMarketCategories(list);
+      const d: Record<string, { name: string; active: boolean }> = {};
+      for (const c of list) {
+        d[c.pubkey] = { name: c.name, active: c.active };
+      }
+      setCategoryDraft(d);
+    } catch {
+      setMarketCategories([]);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, [connection]);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wallet.publicKey || !config || !newCategoryName.trim()) return;
+    setCategoryActionLoading(true);
+    setCategoryActionError(null);
+    try {
+      await createMarketCategoryTx(
+        connection,
+        wallet,
+        new BN(config.nextCategoryId),
+        newCategoryName.trim()
+      );
+      setNewCategoryName('');
+      const idl = await fetchIdl();
+      const provider = new AnchorProvider(connection, wallet as any, {
+        commitment: 'confirmed',
+        preflightCommitment: 'confirmed',
+      });
+      const program = new Program(idl, provider);
+      const account = await (program.account as any).globalConfig.fetch(
+        globalConfigPda
+      );
+      setConfig((c) =>
+        c
+          ? {
+              ...c,
+              nextCategoryId: (account.nextCategoryId as BN).toNumber(),
+            }
+          : null
+      );
+      await loadCategories();
+    } catch (err: any) {
+      setCategoryActionError(err?.message ?? 'Failed to create category');
+    } finally {
+      setCategoryActionLoading(false);
+    }
+  };
+
+  const handleSaveCategory = async (pubkey: string) => {
+    const row = marketCategories.find((c) => c.pubkey === pubkey);
+    const draft = categoryDraft[pubkey];
+    if (!wallet.publicKey || !row || !draft) return;
+    const name = draft.name.trim();
+    if (!name) {
+      setCategoryActionError('Category name cannot be empty');
+      return;
+    }
+    setCategoryActionLoading(true);
+    setCategoryActionError(null);
+    try {
+      await updateMarketCategoryTx(
+        connection,
+        wallet,
+        new BN(row.id, 10),
+        name,
+        draft.active
+      );
+      await loadCategories();
+    } catch (err: any) {
+      setCategoryActionError(err?.message ?? 'Failed to update category');
+    } finally {
+      setCategoryActionLoading(false);
+    }
+  };
 
   const handleAddMint = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -365,7 +508,7 @@ export default function Platform() {
                 </div>
                 <div>
                   <dt className="text-outline">Flat fee per transaction</dt>
-                  <dd>{config.platformFeeLamports.toLocaleString()} lamports (~${(config.platformFeeLamports / 1e9 * 140).toFixed(4)} at $140/SOL)</dd>
+                  <dd>{config.platformFeeLamports.toLocaleString()} lamports (~${(config.platformFeeLamports / 1e9 * SOL_USD_REF).toFixed(4)} at ${SOL_USD_REF}/SOL)</dd>
                 </div>
               </dl>
               {isAuthority && (
@@ -413,8 +556,8 @@ export default function Platform() {
                       className="input mt-1"
                     />
                     <p className="mt-1 text-xs text-outline">
-                      Charged in SOL on every mint/redeem. 357 000 ≈ $0.05 at $140/SOL.
-                      Current value: ~${(platformFeeLamports / 1e9 * 140).toFixed(4)}
+                      Charged in SOL on every mint/redeem. {flatFeeLamports.toLocaleString()} lamports ≈ ~$
+                      {flatFeeUsdApprox.toFixed(4)} at ${SOL_USD_REF}/SOL.
                     </p>
                   </div>
                   {updateError && (
@@ -473,8 +616,8 @@ export default function Platform() {
                     className="input mt-1"
                   />
                   <p className="mt-1 text-xs text-outline">
-                    Charged in SOL on every mint/redeem. 357 000 ≈ $0.05 at $140/SOL.
-                    Current value: ~${(platformFeeLamports / 1e9 * 140).toFixed(4)}
+                    Charged in SOL on every mint/redeem. {flatFeeLamports.toLocaleString()} lamports ≈ ~$
+                    {flatFeeUsdApprox.toFixed(4)} at ${SOL_USD_REF}/SOL.
                   </p>
                 </div>
                 {updateError && (
@@ -555,6 +698,132 @@ export default function Platform() {
           )}
           {addMintError && (
             <p className="mt-2 text-sm text-error">{addMintError}</p>
+          )}
+        </section>
+
+        {/* Market categories — on-chain PDAs for create_market */}
+        <section className="card p-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-bold text-on-surface">Market categories</h2>
+              <p className="mt-1 text-sm text-on-surface-variant">
+                Creators pick these when opening a market. IDs are assigned sequentially; next id:{' '}
+                <span className="font-mono text-on-surface">
+                  {config?.nextCategoryId ?? '—'}
+                </span>
+                .
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadCategories}
+              disabled={categoriesLoading}
+              className="btn-secondary text-xs px-3 py-1.5 shrink-0"
+            >
+              {categoriesLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            {categoriesLoading && marketCategories.length === 0 ? (
+              <p className="text-sm text-outline">Loading categories…</p>
+            ) : marketCategories.length === 0 ? (
+              <p className="text-sm text-outline italic">No categories yet.</p>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-outline-variant/20 text-outline text-xs uppercase tracking-wider">
+                    <th className="py-2 pr-4">Id</th>
+                    <th className="py-2 pr-4">Name</th>
+                    <th className="py-2 pr-4">Active</th>
+                    <th className="py-2"> </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {marketCategories.map((c) => (
+                    <tr key={c.pubkey} className="border-b border-outline-variant/10">
+                      <td className="py-2 pr-4 font-mono text-xs align-middle">{c.id}</td>
+                      <td className="py-2 pr-4 align-middle">
+                        <input
+                          type="text"
+                          value={categoryDraft[c.pubkey]?.name ?? c.name}
+                          onChange={(e) =>
+                            setCategoryDraft((prev) => ({
+                              ...prev,
+                              [c.pubkey]: {
+                                name: e.target.value,
+                                active: prev[c.pubkey]?.active ?? c.active,
+                              },
+                            }))
+                          }
+                          disabled={!isAuthority}
+                          className="input font-mono text-xs py-1 max-w-xs"
+                        />
+                      </td>
+                      <td className="py-2 pr-4 align-middle">
+                        <input
+                          type="checkbox"
+                          checked={categoryDraft[c.pubkey]?.active ?? c.active}
+                          onChange={(e) =>
+                            setCategoryDraft((prev) => ({
+                              ...prev,
+                              [c.pubkey]: {
+                                name: prev[c.pubkey]?.name ?? c.name,
+                                active: e.target.checked,
+                              },
+                            }))
+                          }
+                          disabled={!isAuthority}
+                          className="rounded border-outline-variant"
+                        />
+                      </td>
+                      <td className="py-2 align-middle">
+                        {isAuthority && (
+                          <button
+                            type="button"
+                            onClick={() => handleSaveCategory(c.pubkey)}
+                            disabled={categoryActionLoading}
+                            className="btn-secondary text-xs px-2 py-1"
+                          >
+                            Save
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {isAuthority && config && (
+            <form onSubmit={handleCreateCategory} className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-outline">New category name</label>
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder={`Next id ${config.nextCategoryId}`}
+                  className="input mt-1"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={categoryActionLoading || !newCategoryName.trim()}
+                className="btn-primary shrink-0"
+              >
+                {categoryActionLoading ? 'Submitting…' : 'Create category'}
+              </button>
+            </form>
+          )}
+          {categoryActionError && (
+            <p className="mt-2 text-sm text-error">{categoryActionError}</p>
+          )}
+          {config && !isAuthority && (
+            <p className="mt-4 text-sm text-outline">
+              Only the platform authority can create or edit categories.
+            </p>
           )}
         </section>
 

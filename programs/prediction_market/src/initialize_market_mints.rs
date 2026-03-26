@@ -4,7 +4,8 @@ use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token};
 
-/// Second step of market creation: initializes the 8 outcome mints.
+/// Third step of market creation: initializes **8** outcome mint PDAs (protocol maximum).
+/// Trading uses only `market.outcome_count` mints; the rest remain empty but rent-funded.
 /// Decimals are inherited from `market.collateral_decimals` (stored during `create_market`),
 /// so 1 outcome token ≡ 1 collateral token.
 #[derive(AnchorSerialize, AnchorDeserialize)]

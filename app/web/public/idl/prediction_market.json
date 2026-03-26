@@ -355,6 +355,13 @@
           }
         },
         {
+          "name": "market_category",
+          "docs": [
+            "Optional — omit account for uncategorized (`category = Pubkey::default()`)."
+          ],
+          "optional": true
+        },
+        {
           "name": "collateral_token_program"
         },
         {
@@ -374,6 +381,98 @@
               "name": "CreateMarketArgs"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "create_market_category",
+      "discriminator": [
+        244,
+        9,
+        114,
+        166,
+        86,
+        220,
+        26,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market_category",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  45,
+                  99,
+                  97,
+                  116,
+                  101,
+                  103,
+                  111,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "category_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "category_id",
+          "type": "u64"
+        },
+        {
+          "name": "name",
+          "type": "string"
         }
       ]
     },
@@ -1465,6 +1564,93 @@
       ]
     },
     {
+      "name": "update_market_category",
+      "discriminator": [
+        113,
+        103,
+        2,
+        84,
+        209,
+        145,
+        109,
+        113
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market_category",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  45,
+                  99,
+                  97,
+                  116,
+                  101,
+                  103,
+                  111,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market_category.id",
+                "account": "MarketCategory"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "active",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "upsert_user_profile",
       "discriminator": [
         28,
@@ -1840,6 +2026,19 @@
       ]
     },
     {
+      "name": "MarketCategory",
+      "discriminator": [
+        167,
+        48,
+        213,
+        165,
+        89,
+        201,
+        35,
+        73
+      ]
+    },
+    {
       "name": "OutcomeTally",
       "discriminator": [
         31,
@@ -2012,6 +2211,36 @@
       "code": 6023,
       "name": "UrlTooLong",
       "msg": "URL exceeds 100 bytes"
+    },
+    {
+      "code": 6024,
+      "name": "EmptyTitle",
+      "msg": "Market title cannot be empty"
+    },
+    {
+      "code": 6025,
+      "name": "TitleTooLong",
+      "msg": "Market title exceeds 128 bytes"
+    },
+    {
+      "code": 6026,
+      "name": "MarketCategoryInactive",
+      "msg": "Market category is inactive"
+    },
+    {
+      "code": 6027,
+      "name": "MarketCategoryNameEmpty",
+      "msg": "Market category name cannot be empty"
+    },
+    {
+      "code": 6028,
+      "name": "MarketCategoryNameTooLong",
+      "msg": "Market category name exceeds max length"
+    },
+    {
+      "code": 6029,
+      "name": "InvalidCategoryId",
+      "msg": "category_id must match global_config.next_category_id"
     }
   ],
   "types": [
@@ -2089,6 +2318,13 @@
               "Up to 8 resolver pubkeys, set during initialize_market_resolvers."
             ],
             "type": "u8"
+          },
+          {
+            "name": "title",
+            "docs": [
+              "UTF-8 market title (1–128 bytes after trim)."
+            ],
+            "type": "string"
           }
         ]
       }
@@ -2144,11 +2380,18 @@
             "type": "u64"
           },
           {
+            "name": "next_category_id",
+            "docs": [
+              "Next id for `MarketCategory` PDAs (`[b\"market-category\", id.to_le_bytes()]`)."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "_padding",
             "type": {
               "array": [
                 "u8",
-                64
+                56
               ]
             }
           }
@@ -2158,7 +2401,8 @@
     {
       "name": "InitializeMarketMintsArgs",
       "docs": [
-        "Second step of market creation: initializes the 8 outcome mints.",
+        "Third step of market creation: initializes **8** outcome mint PDAs (protocol maximum).",
+        "Trading uses only `market.outcome_count` mints; the rest remain empty but rent-funded.",
         "Decimals are inherited from `market.collateral_decimals` (stored during `create_market`),",
         "so 1 outcome token ≡ 1 collateral token."
       ],
@@ -2175,7 +2419,10 @@
     {
       "name": "InitializeMarketResolversArgs",
       "docs": [
-        "Third step of market creation: initializes the 8 resolver PDAs and writes the provided pubkeys."
+        "Second step of market creation: initializes **8** resolver PDAs and writes the first",
+        "`num_resolvers` pubkeys. The protocol fixes **8** on-chain slots (max resolvers); unused",
+        "slots stay allocated but are ignored. This is why a 3-outcome market still pays rent for",
+        "eight resolver accounts in this transaction (same pattern as the 8 outcome mints)."
       ],
       "type": {
         "kind": "struct",
@@ -2267,13 +2514,45 @@
             "type": "u8"
           },
           {
-            "name": "_padding",
-            "type": {
-              "array": [
-                "u8",
-                40
-              ]
-            }
+            "name": "title",
+            "docs": [
+              "UTF-8 title shown in UIs (max 128 bytes)."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "category",
+            "docs": [
+              "`MarketCategory` PDA, or `Pubkey::default()` for uncategorized."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketCategory",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "docs": [
+              "Monotonic id (matches PDA seed)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
