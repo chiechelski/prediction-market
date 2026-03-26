@@ -2,14 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Google Material Symbols ─────────────────────────────────────────── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ── Design system tokens ─────────────────────────────────────────────── */
 :root {
-  --color-bg: #fafafa;
-  --color-surface: #ffffff;
-  --color-border: #e4e4e7;
-  --color-text: #18181b;
-  --color-muted: #71717a;
-  --color-brand: #0d9488;
-  --color-brand-hover: #0f766e;
+  --color-bg: #11131c;
+  --color-surface: #1d1f29;
+  --color-border: rgba(73, 68, 85, 0.15);
+  --color-text: #e1e1ef;
+  --color-muted: #948ea0;
+  --color-primary: #cebdff;
+  --color-primary-container: #9c7aff;
 }
 
 * {
@@ -29,23 +35,221 @@ body {
   font-family: 'Outfit', system-ui, sans-serif;
 }
 
+/* ── Utility classes ──────────────────────────────────────────────────── */
+@layer utilities {
+  .glass-panel {
+    background: rgba(55, 57, 67, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .brand-gradient-text {
+    background: linear-gradient(135deg, #cebdff 0%, #9c7aff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-glow {
+    background: radial-gradient(
+      circle at 50% 50%,
+      rgba(140, 97, 255, 0.15) 0%,
+      rgba(17, 19, 28, 0) 70%
+    );
+  }
+
+  .gradient-border {
+    background: linear-gradient(#1d1f29, #1d1f29) padding-box,
+                linear-gradient(135deg, #cebdff, #41deba, #cebdff) border-box;
+    border: 1px solid transparent;
+  }
+}
+
+/* ── Component classes ───────────────────────────────────────────────── */
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-200
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background
+           disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97];
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 px-4 py-2.5;
+    @apply btn bg-gradient-to-br from-primary to-primary-container text-on-primary px-6 py-3
+           shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:scale-[1.02];
   }
   .btn-secondary {
-    @apply btn bg-surface-100 text-surface-800 hover:bg-surface-200 px-4 py-2.5;
+    @apply btn bg-surface-container-highest text-primary px-6 py-3
+           border border-outline-variant/20 hover:border-primary/30 hover:bg-surface-container;
   }
   .btn-ghost {
-    @apply btn text-surface-600 hover:bg-surface-100 hover:text-surface-900 px-4 py-2.5;
+    @apply btn text-primary-fixed-dim hover:bg-surface-container px-6 py-3;
   }
   .card {
-    @apply rounded-xl border border-surface-200 bg-white shadow-card transition-shadow hover:shadow-card-hover;
+    @apply rounded-2xl bg-surface-container border border-outline-variant/10
+           shadow-card transition-all duration-200 hover:bg-surface-container-high
+           hover:border-outline-variant/20 hover:shadow-card-hover;
   }
   .input {
-    @apply w-full rounded-lg border border-surface-200 bg-white px-3 py-2.5 text-surface-900 placeholder:text-surface-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    @apply w-full rounded-xl border border-outline-variant/20 bg-surface-container-lowest
+           px-4 py-3 text-on-surface placeholder:text-outline
+           focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20
+           transition-all duration-200;
   }
+  .status-open {
+    @apply text-secondary bg-secondary/10 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide;
+  }
+  .status-closing {
+    @apply text-tertiary bg-tertiary/10 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide;
+  }
+  .status-resolved {
+    @apply text-outline px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide;
+  }
+}
+
+/* ── Wallet adapter — hero size (landing page CTAs) ─────────────────── */
+.wallet-btn-hero .wallet-adapter-button,
+.wallet-btn-hero .wallet-adapter-button-trigger {
+  height: auto !important;
+  line-height: 1.5 !important;
+  padding: 1.25rem 2.5rem !important;
+  font-size: 1.125rem !important;
+  border-radius: 0.75rem !important;
+  width: 100% !important;
+}
+
+/* ── Wallet adapter overrides ────────────────────────────────────────── */
+.wallet-adapter-button,
+.wallet-adapter-button-trigger {
+  background: linear-gradient(135deg, #cebdff 0%, #9c7aff 100%) !important;
+  color: #390094 !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-weight: 700 !important;
+  font-size: 0.8125rem !important;
+  border-radius: 0.5rem !important;
+  /* Force compact height — override the adapter's 48px line-height */
+  height: 2.25rem !important;
+  line-height: 1 !important;
+  padding: 0 1.25rem !important;
+  transition: opacity 0.15s, transform 0.1s !important;
+  white-space: nowrap !important;
+}
+
+.wallet-adapter-button:hover:not([disabled]),
+.wallet-adapter-button-trigger:hover:not([disabled]) {
+  opacity: 0.9 !important;
+  background: linear-gradient(135deg, #e8ddff 0%, #cebdff 100%) !important;
+}
+
+.wallet-adapter-button:active:not([disabled]) {
+  transform: scale(0.97) !important;
+}
+
+/* Connected state — show address in subdued glass style */
+.wallet-adapter-button[data-connected] {
+  background: #1d1f29 !important;
+  color: #cebdff !important;
+  border: 1px solid rgba(73, 68, 85, 0.3) !important;
+}
+
+/* Modal overlay */
+.wallet-adapter-modal {
+  background: rgba(12, 14, 23, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* Modal card */
+.wallet-adapter-modal-wrapper {
+  background: #1d1f29 !important;
+  border: 1px solid rgba(73, 68, 85, 0.2) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6) !important;
+  padding: 2rem !important;
+}
+
+/* Title */
+.wallet-adapter-modal-title {
+  color: #e1e1ef !important;
+  font-family: 'Manrope', sans-serif !important;
+  font-weight: 800 !important;
+  font-size: 1.375rem !important;
+  line-height: 1.3 !important;
+}
+
+/* Close button */
+.wallet-adapter-modal-button-close {
+  background: #32343e !important;
+  border-radius: 50% !important;
+  color: #948ea0 !important;
+}
+
+.wallet-adapter-modal-button-close:hover {
+  background: #494455 !important;
+}
+
+.wallet-adapter-modal-button-close svg {
+  fill: #948ea0 !important;
+}
+
+/* Wallet list */
+.wallet-adapter-modal-list {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.wallet-adapter-modal-list li {
+  padding: 0 !important;
+  margin-bottom: 0.375rem !important;
+}
+
+/* Each wallet row button */
+.wallet-adapter-modal-list .wallet-adapter-button {
+  background: #282933 !important;
+  color: #e1e1ef !important;
+  border-radius: 0.75rem !important;
+  height: 3.25rem !important;
+  padding: 0 1.25rem !important;
+  width: 100% !important;
+  justify-content: flex-start !important;
+  font-size: 0.9375rem !important;
+  font-weight: 600 !important;
+  border: 1px solid rgba(73, 68, 85, 0.15) !important;
+  transition: background 0.15s, border-color 0.15s !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button:hover {
+  background: #32343e !important;
+  border-color: rgba(206, 189, 255, 0.2) !important;
+  color: #cebdff !important;
+}
+
+/* "Detected" badge */
+.wallet-adapter-modal-list .wallet-adapter-button-end-icon,
+.wallet-adapter-modal-list .wallet-adapter-button p {
+  color: #41deba !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
+}
+
+/* Wallet icon */
+.wallet-adapter-modal-list .wallet-adapter-button-start-icon img,
+.wallet-adapter-modal-list .wallet-adapter-button i {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+}
+
+/* "More options" collapse button */
+.wallet-adapter-modal-collapse-button {
+  color: #cbc3d7 !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  padding: 0.75rem 0 0 !important;
+}
+
+.wallet-adapter-modal-collapse-button:hover {
+  color: #cebdff !important;
+}
+
+.wallet-adapter-modal-collapse-button svg {
+  fill: #cbc3d7 !important;
 }

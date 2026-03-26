@@ -1,14 +1,21 @@
 {
   "license": "ISC",
+  "resolutions": {
+    "@solana/web3.js": "1.98.4"
+  },
   "scripts": {
+    "postinstall": "patch-package",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
-    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "script:usdc": "ts-node -P tsconfig.json scripts/create-test-usdc.ts",
+    "script:mint": "ts-node -P tsconfig.json scripts/mint-test-usdc.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
     "@solana/spl-token": "^0.4.14"
   },
   "devDependencies": {
+    "patch-package": "^8.0.0",
     "@types/bn.js": "^5.1.0",
     "@types/chai": "^4.3.0",
     "@types/mocha": "^9.0.0",

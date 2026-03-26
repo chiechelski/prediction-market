@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deriveResolutionVote = exports.deriveAllResolvers = exports.deriveResolver = exports.deriveAllOutcomeMints = exports.deriveOutcomeMint = exports.deriveVault = exports.deriveMarket = exports.deriveAllowedMint = exports.deriveGlobalConfig = void 0;
+exports.deriveUserProfile = exports.deriveAllOutcomeTallies = exports.deriveOutcomeTally = exports.deriveResolutionVote = exports.deriveAllResolvers = exports.deriveResolver = exports.deriveAllOutcomeMints = exports.deriveOutcomeMint = exports.deriveVault = exports.deriveMarket = exports.deriveAllowedMint = exports.deriveGlobalConfig = void 0;
 const web3_js_1 = require("@solana/web3.js");
 /** Derive the GlobalConfig PDA. */
 const deriveGlobalConfig = (programId) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('global-config')], programId)[0];
@@ -29,4 +29,13 @@ exports.deriveAllResolvers = deriveAllResolvers;
 /** Derive the ResolutionVote PDA for a market and resolver index (0–7). */
 const deriveResolutionVote = (programId, market, resolverIndex) => web3_js_1.PublicKey.findProgramAddressSync([market.toBuffer(), Buffer.from('vote'), Buffer.from([resolverIndex])], programId)[0];
 exports.deriveResolutionVote = deriveResolutionVote;
+/** Per-outcome resolution vote counter PDA (0–7). */
+const deriveOutcomeTally = (programId, market, outcomeIndex) => web3_js_1.PublicKey.findProgramAddressSync([market.toBuffer(), Buffer.from('outcome-tally'), Buffer.from([outcomeIndex])], programId)[0];
+exports.deriveOutcomeTally = deriveOutcomeTally;
+/** All eight outcome tally PDAs (unused outcome indices may never be initialized). */
+const deriveAllOutcomeTallies = (programId, market) => Array.from({ length: 8 }, (_, i) => (0, exports.deriveOutcomeTally)(programId, market, i));
+exports.deriveAllOutcomeTallies = deriveAllOutcomeTallies;
+/** Derive the UserProfile PDA for a given wallet address. Seeds: ["user-profile", wallet]. */
+const deriveUserProfile = (programId, wallet) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('user-profile'), wallet.toBuffer()], programId)[0];
+exports.deriveUserProfile = deriveUserProfile;
 //# sourceMappingURL=pda.js.map

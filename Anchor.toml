@@ -26,5 +26,5 @@ ledger = ".anchor/test-ledger"
 rpc_port = 8899
 
 [scripts]
-# Run happy-path first (creates mint, config, allowlist), then edge-cases
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/prediction_market.ts tests/edge-cases.ts"
+# Run happy-path first (creates mint, config, allowlist), then edge-cases, then user-profile
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/prediction_market.ts tests/edge-cases.ts tests/user-profile.ts"

@@ -27,6 +27,7 @@ pub fn handler(
     ];
     for i in 0..args.num_resolvers as usize {
         resolvers[i].resolver_pubkey = args.resolver_pubkeys[i];
+        resolvers[i]._padding = [0u8; RESOLVER_ACCOUNT_SPACE_PADDING];
     }
     Ok(())
 }

@@ -30,7 +30,9 @@ import {
   deriveMarket,
   deriveVault,
   deriveAllOutcomeMints,
+  deriveAllOutcomeTallies,
   deriveAllResolvers,
+  deriveOutcomeTally,
   deriveResolutionVote,
 } from './test-helpers';
 
@@ -60,8 +62,11 @@ const resolverPdas = deriveAllResolvers(program.programId, marketPda);
 // ATAs (deterministic — derived at module load time)
 const payerCollateralAta = getAta(collateralMint, payer.publicKey);
 const userCollateralAta = getAta(collateralMint, userKeypair.publicKey);
-const platformTreasuryAta = getAta(collateralMint, payer.publicKey); // reuse payer as treasury owner in tests
-const creatorFeeAta = getAta(collateralMint, payer.publicKey);       // reuse payer as creator fee owner
+// Use distinct accounts for each role to avoid AccountBorrowFailed on self-transfers:
+//   user pays from payerCollateralAta, platform fee goes to user's ATA, creator fee to resolver's ATA
+const platformTreasuryAta = getAta(collateralMint, userKeypair.publicKey);
+const resolverCollateralAta = getAta(collateralMint, resolverKeypair.publicKey);
+const creatorFeeAta = resolverCollateralAta;
 
 // Per-outcome ATAs for the payer (user minting/redeeming)
 const payerOutcomeAtas = outcomeMints.map((m) => getAta(m, payer.publicKey));
@@ -115,6 +120,10 @@ describe('startup', () => {
         payer.publicKey, userCollateralAta, userKeypair.publicKey,
         collateralMint, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
       ),
+      createAssociatedTokenAccountInstruction(
+        payer.publicKey, resolverCollateralAta, resolverKeypair.publicKey,
+        collateralMint, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+      ),
       createMintToInstruction(
         collateralMint, payerCollateralAta, payer.publicKey,
         MINT_AMOUNT, [], TOKEN_PROGRAM_ID
@@ -137,17 +146,18 @@ describe('startup', () => {
 describe('admin', () => {
   it('initializes global config', async () => {
     await program.methods
-      .initializeConfig(PLATFORM_FEE_BPS, platformTreasuryAta)
+      .initializeConfig(payer.publicKey, PLATFORM_FEE_BPS, userKeypair.publicKey, new BN(0))
       .accounts({
         globalConfig: globalConfigPda,
         authority: payer.publicKey,
+        secondaryAuthority: payer.publicKey,
         systemProgram: SystemProgram.programId,
       })
       .rpc({ skipPreflight: true });
 
     const cfg = await program.account.globalConfig.fetch(globalConfigPda);
     assert.equal(cfg.platformFeeBps, PLATFORM_FEE_BPS);
-    assert.equal(cfg.platformTreasury.toBase58(), platformTreasuryAta.toBase58());
+    assert.equal(cfg.platformTreasury.toBase58(), userKeypair.publicKey.toBase58());
   });
 
   it('adds collateral mint to allowlist', async () => {
@@ -169,10 +179,11 @@ describe('admin', () => {
   it('updates global config fee', async () => {
     const newFee = 200;
     await program.methods
-      .updateConfig(newFee, platformTreasuryAta)
+      .updateConfig(payer.publicKey, newFee, userKeypair.publicKey, new BN(0))
       .accounts({
         globalConfig: globalConfigPda,
         authority: payer.publicKey,
+        newAuthority: payer.publicKey,
       })
       .rpc({ skipPreflight: true });
 
@@ -181,8 +192,8 @@ describe('admin', () => {
 
     // reset back
     await program.methods
-      .updateConfig(PLATFORM_FEE_BPS, platformTreasuryAta)
-      .accounts({ globalConfig: globalConfigPda, authority: payer.publicKey })
+      .updateConfig(payer.publicKey, PLATFORM_FEE_BPS, userKeypair.publicKey, new BN(0))
+      .accounts({ globalConfig: globalConfigPda, authority: payer.publicKey, newAuthority: payer.publicKey })
       .rpc({ skipPreflight: true });
   });
 });
@@ -299,37 +310,31 @@ describe('mint complete set', () => {
     const vaultBefore = await getAccount(connection, vaultPda, undefined, TOKEN_PROGRAM_ID);
     const payerBefore = await getAccount(connection, payerCollateralAta, undefined, TOKEN_PROGRAM_ID);
 
+    const m = await program.account.market.fetch(marketPda);
+    const n = BN.isBN(m.outcomeCount) ? (m.outcomeCount as BN).toNumber() : Number(m.outcomeCount);
+    const mintRemaining = Array.from({ length: n }, (_, i) => [
+      { pubkey: outcomeMints[i], isSigner: false, isWritable: true },
+      { pubkey: payerOutcomeAtas[i], isSigner: false, isWritable: true },
+    ]).flat();
+
     await program.methods
       .mintCompleteSet({ amount: AMOUNT, marketId })
-      .accounts({
+      .accountsStrict({
         user: payer.publicKey,
         market: marketPda,
         vault: vaultPda,
         collateralMint,
         userCollateralAccount: payerCollateralAta,
-        platformTreasury: platformTreasuryAta,
         creatorFeeAccount: creatorFeeAta,
         globalConfig: globalConfigPda,
         allowedMint: allowedMintPda,
-        outcomeMint0: outcomeMints[0],
-        outcomeMint1: outcomeMints[1],
-        outcomeMint2: outcomeMints[2],
-        outcomeMint3: outcomeMints[3],
-        outcomeMint4: outcomeMints[4],
-        outcomeMint5: outcomeMints[5],
-        outcomeMint6: outcomeMints[6],
-        outcomeMint7: outcomeMints[7],
-        userOutcome0: payerOutcomeAtas[0],
-        userOutcome1: payerOutcomeAtas[1],
-        userOutcome2: payerOutcomeAtas[2],
-        userOutcome3: payerOutcomeAtas[3],
-        userOutcome4: payerOutcomeAtas[4],
-        userOutcome5: payerOutcomeAtas[5],
-        userOutcome6: payerOutcomeAtas[6],
-        userOutcome7: payerOutcomeAtas[7],
+        platformTreasuryWallet: userKeypair.publicKey,
+        platformTreasuryAta,
         collateralTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
+      .remainingAccounts(mintRemaining)
       .rpc({ skipPreflight: true });
 
     const platformFee = Math.floor((AMOUNT.toNumber() * PLATFORM_FEE_BPS) / 10000);
@@ -437,13 +442,13 @@ describe('close market early', () => {
 describe('resolution', () => {
   it('resolver votes for outcome 0', async () => {
     const votePda = deriveResolutionVote(program.programId, marketPda, 0);
+    const tally0 = deriveOutcomeTally(program.programId, marketPda, 0);
 
     await program.methods
       .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
-      .accounts({
+      .accountsStrict({
         resolverSigner: resolverKeypair.publicKey,
         market: marketPda,
-        resolutionVote: votePda,
         resolver0: resolverPdas[0],
         resolver1: resolverPdas[1],
         resolver2: resolverPdas[2],
@@ -452,30 +457,36 @@ describe('resolution', () => {
         resolver5: resolverPdas[5],
         resolver6: resolverPdas[6],
         resolver7: resolverPdas[7],
+        resolutionVote: votePda,
+        outcomeTally: tally0,
         systemProgram: SystemProgram.programId,
       })
       .signers([resolverKeypair])
       .rpc({ skipPreflight: true });
 
     const vote = await program.account.resolutionVote.fetch(votePda);
+    assert.isTrue(vote.hasVoted);
     assert.equal(vote.outcomeIndex, 0);
+    const tally = await program.account.outcomeTally.fetch(tally0);
+    assert.equal(tally.count, 1);
   });
 
   it('finalizes resolution when threshold is met (outcome 0 wins)', async () => {
-    const vote0Pda = deriveResolutionVote(program.programId, marketPda, 0);
+    const tallies = deriveAllOutcomeTallies(program.programId, marketPda);
+    const infos = await Promise.all(tallies.map((p) => connection.getAccountInfo(p)));
 
     await program.methods
       .finalizeResolution({ marketId })
       .accounts({
         market: marketPda,
-        resolutionVote0: vote0Pda,
-        resolutionVote1: null,
-        resolutionVote2: null,
-        resolutionVote3: null,
-        resolutionVote4: null,
-        resolutionVote5: null,
-        resolutionVote6: null,
-        resolutionVote7: null,
+        outcomeTally0: infos[0] ? tallies[0] : null,
+        outcomeTally1: infos[1] ? tallies[1] : null,
+        outcomeTally2: infos[2] ? tallies[2] : null,
+        outcomeTally3: infos[3] ? tallies[3] : null,
+        outcomeTally4: infos[4] ? tallies[4] : null,
+        outcomeTally5: infos[5] ? tallies[5] : null,
+        outcomeTally6: infos[6] ? tallies[6] : null,
+        outcomeTally7: infos[7] ? tallies[7] : null,
       })
       .rpc({ skipPreflight: true });
 
@@ -502,6 +513,8 @@ describe('redeem winning', () => {
         vault: vaultPda,
         collateralMint,
         userCollateralAccount: payerCollateralAta,
+        globalConfig: globalConfigPda,
+        platformTreasuryWallet: userKeypair.publicKey,
         outcomeMint0: outcomeMints[0],
         outcomeMint1: outcomeMints[1],
         outcomeMint2: outcomeMints[2],
@@ -513,6 +526,7 @@ describe('redeem winning', () => {
         userWinningOutcome: payerOutcomeAtas[0],
         collateralTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc({ skipPreflight: true });
 

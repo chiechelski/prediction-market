@@ -80,6 +80,27 @@ export function deriveResolutionVote(
   return pda;
 }
 
+export function deriveOutcomeTally(
+  programId: PublicKey,
+  market: PublicKey,
+  outcomeIndex: number
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('outcome-tally'), Buffer.from([outcomeIndex])],
+    programId
+  );
+  return pda;
+}
+
+export function deriveAllOutcomeTallies(
+  programId: PublicKey,
+  market: PublicKey
+): PublicKey[] {
+  return Array.from({ length: 8 }, (_, i) =>
+    deriveOutcomeTally(programId, market, i)
+  );
+}
+
 export function deriveAllOutcomeMints(
   programId: PublicKey,
   market: PublicKey
@@ -96,4 +117,15 @@ export function deriveAllResolvers(
   return Array.from({ length: 8 }, (_, i) =>
     deriveResolver(programId, market, i)
   );
+}
+
+export function deriveUserProfile(
+  programId: PublicKey,
+  wallet: PublicKey
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('user-profile'), wallet.toBuffer()],
+    programId
+  );
+  return pda;
 }

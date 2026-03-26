@@ -95,6 +95,17 @@ export const deriveResolutionVote = (
     programId
   )[0];
 
+/** Per-outcome resolution vote counter PDA (0–7). */
+export const deriveOutcomeTally = (
+  programId: PublicKey,
+  market: PublicKey,
+  outcomeIndex: number
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [market.toBuffer(), Buffer.from('outcome-tally'), Buffer.from([outcomeIndex])],
+    programId
+  )[0];
+
 // ─── Market account helpers (all 8 PDAs at once) ────────────────────────────
 
 export const deriveAllOutcomeMints = (programId: PublicKey, market: PublicKey): PublicKey[] =>
@@ -102,3 +113,13 @@ export const deriveAllOutcomeMints = (programId: PublicKey, market: PublicKey): 
 
 export const deriveAllResolvers = (programId: PublicKey, market: PublicKey): PublicKey[] =>
   Array.from({ length: 8 }, (_, i) => deriveResolver(programId, market, i));
+
+export const deriveAllOutcomeTallies = (programId: PublicKey, market: PublicKey): PublicKey[] =>
+  Array.from({ length: 8 }, (_, i) => deriveOutcomeTally(programId, market, i));
+
+/** Derive the UserProfile PDA for a given wallet. Seeds: ["user-profile", wallet]. */
+export const deriveUserProfile = (programId: PublicKey, wallet: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('user-profile'), wallet.toBuffer()],
+    programId
+  )[0];

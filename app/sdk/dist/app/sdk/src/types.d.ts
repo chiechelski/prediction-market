@@ -50,6 +50,12 @@ export interface VoteResolutionParams {
 export interface FinalizeResolutionParams {
     marketId: BN;
 }
+export interface RevokeResolutionVoteParams {
+    marketId: BN;
+    resolverIndex: number;
+    /** Must match the active vote’s outcome (see on-chain `resolution_vote.outcome_index`). */
+    outcomeIndex: number;
+}
 export interface RedeemWinningParams {
     marketId: BN;
     /** Number of winning outcome token base units to redeem. */
@@ -61,10 +67,32 @@ export interface CloseMarketEarlyParams {
 export interface VoidMarketParams {
     marketId: BN;
 }
+export interface InitializeConfigParams {
+    /** Secondary authority pubkey — stored on-chain, can also call restricted instructions. */
+    secondaryAuthority: PublicKey;
+    platformFeeBps: number;
+    /** Wallet address that receives platform fees (ATAs are derived per-mint at redemption time). */
+    platformTreasuryWallet: PublicKey;
+    /** Flat SOL fee charged per mint/redeem transaction (lamports). Use 0 to disable. */
+    platformFeeLamports: BN;
+}
+export interface UpdateConfigParams {
+    secondaryAuthority: PublicKey;
+    platformFeeBps: number;
+    platformTreasuryWallet: PublicKey;
+    platformFeeLamports: BN;
+    /** Pass a new pubkey to rotate the primary authority; pass current authority to keep unchanged. */
+    newAuthority: PublicKey;
+}
 export interface GlobalConfigAccount {
     authority: PublicKey;
+    /** Optional secondary authority that can call restricted instructions. */
+    secondaryAuthority: PublicKey;
     platformFeeBps: number;
+    /** Wallet address (not ATA) — ATAs are derived per-mint at redemption time. */
     platformTreasury: PublicKey;
+    /** Flat SOL fee charged per mint/redeem transaction (lamports). */
+    platformFeeLamports: BN;
 }
 export interface MarketAccount {
     collateralMint: PublicKey;
@@ -86,8 +114,31 @@ export interface ResolverAccount {
     resolverPubkey: PublicKey;
 }
 export interface ResolutionVoteAccount {
-    market: PublicKey;
-    resolverIndex: number;
+    hasVoted: boolean;
     outcomeIndex: number;
+}
+export interface OutcomeTallyAccount {
+    count: number;
+}
+/** Parameters for `upsertUserProfile`. Both fields are optional to update; pass empty string to leave unchanged conceptually (the program accepts any value ≤ max length). */
+export interface UpsertUserProfileParams {
+    /** Display name shown in the UI. Max 50 bytes UTF-8. */
+    displayName: string;
+    /** Optional website or social URL. Max 100 bytes UTF-8. */
+    url: string;
+}
+/** Parameters for `verifyUserProfile`. */
+export interface VerifyUserProfileParams {
+    /** True to mark the profile as verified; false to revoke verification. */
+    verified: boolean;
+}
+/** On-chain UserProfile account shape (mirrors the Rust `UserProfile` struct). */
+export interface UserProfileAccount {
+    /** Display name set by the wallet owner. */
+    displayName: string;
+    /** URL set by the wallet owner. */
+    url: string;
+    /** Set exclusively by the platform authority via `verifyUserProfile`. */
+    verified: boolean;
 }
 //# sourceMappingURL=types.d.ts.map

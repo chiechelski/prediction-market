@@ -4,6 +4,7 @@ use crate::errors::PredictionMarketError;
 use crate::state::*;
 use crate::utils::transfer_checked;
 use anchor_lang::prelude::*;
+use anchor_lang::system_program::{self, Transfer as SolTransfer};
 use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount};
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
@@ -20,6 +21,21 @@ pub fn handler(ctx: Context<RedeemWinning>, args: RedeemWinningArgs) -> Result<(
         .resolved_outcome_index
         .ok_or(PredictionMarketError::MarketNotResolved)?;
     require!(args.amount > 0, PredictionMarketError::ZeroMintAmount);
+
+    // Flat SOL fee to platform treasury wallet
+    let fee_lamports = ctx.accounts.global_config.platform_fee_lamports;
+    if fee_lamports > 0 {
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                SolTransfer {
+                    from: ctx.accounts.user.to_account_info(),
+                    to: ctx.accounts.platform_treasury_wallet.to_account_info(),
+                },
+            ),
+            fee_lamports,
+        )?;
+    }
 
     // 1 winning token base unit = 1 collateral base unit (both mints share the same decimals)
     let collateral_amount = args.amount;
@@ -84,7 +100,7 @@ pub struct RedeemWinning<'info> {
         seeds = [b"market", market.creator.as_ref(), &args.market_id.to_le_bytes()],
         bump = market.bump,
     )]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
 
     #[account(
         mut,
@@ -126,6 +142,14 @@ pub struct RedeemWinning<'info> {
     )]
     pub user_winning_outcome: Account<'info, TokenAccount>,
 
+    #[account(seeds = [b"global-config"], bump)]
+    pub global_config: Account<'info, GlobalConfig>,
+
+    /// Wallet address that receives the flat SOL fee.
+    #[account(mut, address = global_config.platform_treasury)]
+    pub platform_treasury_wallet: SystemAccount<'info>,
+
     pub collateral_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }

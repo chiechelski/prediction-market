@@ -49,4 +49,28 @@ pub enum PredictionMarketError {
 
     #[msg("Invalid resolution threshold (M must be <= number of resolvers)")]
     InvalidResolutionThreshold,
+
+    #[msg("Platform treasury token account mint or owner does not match global config")]
+    InvalidTreasuryAta,
+
+    #[msg("Resolver has already voted; call revoke_resolution_vote before voting again")]
+    AlreadyVoted,
+
+    #[msg("No active vote to revoke")]
+    NotVoted,
+
+    #[msg("Outcome tally counter would overflow")]
+    OutcomeTallyOverflow,
+
+    #[msg("Outcome tally counter is zero")]
+    OutcomeTallyEmpty,
+
+    #[msg("mint_complete_set: remaining accounts must be [outcome_mint_i, user_ata_i] pairs; len = 2 * outcome_count")]
+    InvalidMintCompleteSetRemainingAccounts,
+
+    #[msg("Display name exceeds 50 bytes")]
+    DisplayNameTooLong,
+
+    #[msg("URL exceeds 100 bytes")]
+    UrlTooLong,
 }

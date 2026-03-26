@@ -5,11 +5,14 @@ use anchor_lang::prelude::*;
 
 pub fn handler(ctx: Context<AddAllowedCollateralMint>) -> Result<()> {
     require!(
-        ctx.accounts.global_config.is_authority(&ctx.accounts.authority.key()),
+        ctx.accounts
+            .global_config
+            .is_allowed_authority(ctx.accounts.authority.key()),
         crate::errors::PredictionMarketError::ConfigUnauthorized
     );
     let allowed = &mut ctx.accounts.allowed_mint;
     allowed.mint = ctx.accounts.mint.key();
+    allowed._padding = [0u8; ALLOWED_MINT_ACCOUNT_SPACE_PADDING];
     Ok(())
 }
 

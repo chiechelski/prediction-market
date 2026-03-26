@@ -13,6 +13,11 @@ export type ChainMarketRow = {
   marketPda: PublicKey;
   creator: string;
   outcomeCount: number;
+  closeAt: number;       // unix seconds
+  closed: boolean;
+  resolvedOutcomeIndex: number | null;
+  voided: boolean;
+  resolutionThreshold: number;
 };
 
 export type DashboardMarketEntry = {
@@ -22,7 +27,39 @@ export type DashboardMarketEntry = {
   label: string;
   createdAt: number;
   outcomeCount?: number;
+  closeAt?: number;
+  closed?: boolean;
+  resolvedOutcomeIndex?: number | null;
+  voided?: boolean;
+  resolutionThreshold?: number;
 };
+
+export type MarketStatus = 'open' | 'closing-soon' | 'closed' | 'resolved' | 'voided';
+
+export function getMarketStatus(entry: DashboardMarketEntry): MarketStatus {
+  if (entry.voided) return 'voided';
+  if (entry.resolvedOutcomeIndex !== undefined && entry.resolvedOutcomeIndex !== null) return 'resolved';
+  if (entry.closed) return 'closed';
+  if (entry.closeAt) {
+    const now = Date.now() / 1000;
+    const left = entry.closeAt - now;
+    if (left <= 0) return 'closed';
+    if (left < 86400 * 2) return 'closing-soon';
+  }
+  return 'open';
+}
+
+export function formatTimeLeft(closeAt: number): string {
+  const now = Date.now() / 1000;
+  const diff = closeAt - now;
+  if (diff <= 0) return 'Expired';
+  const days = Math.floor(diff / 86400);
+  const hours = Math.floor((diff % 86400) / 3600);
+  const mins = Math.floor((diff % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
 
 function shortPk(pda: string) {
   return `${pda.slice(0, 4)}…${pda.slice(-4)}`;
@@ -41,6 +78,15 @@ export async function fetchAllMarketsFromChain(
     marketPda: row.publicKey,
     creator: row.account.creator.toBase58(),
     outcomeCount: row.account.outcomeCount as number,
+    closeAt: Number(row.account.closeAt),
+    closed: row.account.closed as boolean,
+    resolvedOutcomeIndex:
+      row.account.resolvedOutcomeIndex !== null &&
+      row.account.resolvedOutcomeIndex !== undefined
+        ? Number(row.account.resolvedOutcomeIndex)
+        : null,
+    voided: row.account.voided as boolean,
+    resolutionThreshold: row.account.resolutionThreshold as number,
   }));
 }
 
@@ -61,6 +107,11 @@ export function mergeRegistryAndChain(
       label: r.label ?? 'Market',
       createdAt: r.createdAt,
       outcomeCount: c?.outcomeCount,
+      closeAt: c?.closeAt,
+      closed: c?.closed,
+      resolvedOutcomeIndex: c?.resolvedOutcomeIndex,
+      voided: c?.voided,
+      resolutionThreshold: c?.resolutionThreshold,
     });
   }
 
@@ -75,6 +126,11 @@ export function mergeRegistryAndChain(
       label: `On-chain ${shortPk(key)}`,
       createdAt: 0,
       outcomeCount: c.outcomeCount,
+      closeAt: c.closeAt,
+      closed: c.closed,
+      resolvedOutcomeIndex: c.resolvedOutcomeIndex,
+      voided: c.voided,
+      resolutionThreshold: c.resolutionThreshold,
     });
   }
 

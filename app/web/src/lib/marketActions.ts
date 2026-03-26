@@ -15,8 +15,11 @@ import {
   deriveVault,
   deriveGlobalConfig,
   deriveAllOutcomeMints,
+  deriveAllOutcomeTallies,
   deriveAllResolvers,
+  deriveOutcomeTally,
   deriveResolutionVote,
+  deriveUserProfile,
 } from '@/lib/pda';
 import {
   ataAddress,
@@ -27,6 +30,25 @@ import {
 export const DEFAULT_PUBKEY = new PublicKey(
   '11111111111111111111111111111111'
 );
+
+/**
+ * Given a treasury wallet address and a collateral mint, returns:
+ *   - the ATA address that would receive token fees
+ *   - whether that ATA already exists on-chain
+ *
+ * The treasury ATA must exist before minting; the UI creates it when you trade
+ * if it is missing. This helper is for display / diagnostics.
+ */
+export async function getTreasuryAtaInfo(
+  connection: Connection,
+  treasuryWallet: PublicKey,
+  collateralMint: PublicKey
+): Promise<{ ata: PublicKey; exists: boolean }> {
+  const tokenProgram = await getMintTokenProgram(connection, collateralMint);
+  const ata = ataAddress(collateralMint, treasuryWallet, tokenProgram);
+  const info = await connection.getAccountInfo(ata);
+  return { ata, exists: info !== null };
+}
 
 function padResolvers(keys: PublicKey[], numResolvers: number): PublicKey[] {
   const out: PublicKey[] = [];
@@ -244,21 +266,37 @@ export async function mintCompleteSetTx(
     collateralTokenProgram
   );
 
-  const globalConfig = await (program.account as any).globalConfig.fetch(
-    deriveGlobalConfig(program.programId)
+  const globalConfigPda = deriveGlobalConfig(program.programId);
+  const globalConfig = await (program.account as any).globalConfig.fetch(globalConfigPda);
+  const platformTreasuryWallet = globalConfig.platformTreasury as PublicKey;
+
+  const platformTreasuryAta = ataAddress(collateralMint, platformTreasuryWallet, collateralTokenProgram);
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    platformTreasuryWallet,
+    collateralTokenProgram
   );
-  const platformTreasury = globalConfig.platformTreasury as PublicKey;
 
   const market = await (program.account as any).market.fetch(marketPda);
   const creatorFeeAccount = market.creatorFeeAccount as PublicKey;
+  const n = BN.isBN(market.outcomeCount)
+    ? (market.outcomeCount as InstanceType<typeof BN>).toNumber()
+    : Number(market.outcomeCount);
   const allowedMint = deriveAllowedMint(program.programId, collateralMint);
   const vault = deriveVault(program.programId, marketPda);
-  const outcomeMints = deriveAllOutcomeMints(program.programId, marketPda);
+  const outcomeMints = deriveAllOutcomeMints(program.programId, marketPda).slice(0, n);
   const outcomeAtas = await ensureOutcomeAtas(
     connection,
     wallet,
     outcomeMints
   );
+
+  const remainingAccounts = outcomeMints.flatMap((mint: PublicKey, i: number) => [
+    { pubkey: mint, isSigner: false, isWritable: true },
+    { pubkey: outcomeAtas[i], isSigner: false, isWritable: true },
+  ]);
 
   await program.methods
     .mintCompleteSet({ amount, marketId })
@@ -268,21 +306,16 @@ export async function mintCompleteSetTx(
       vault,
       collateralMint,
       userCollateralAccount: userCollateral,
-      platformTreasury,
       creatorFeeAccount,
-      globalConfig: deriveGlobalConfig(program.programId),
+      globalConfig: globalConfigPda,
       allowedMint,
-      outcomeMint0: outcomeMints[0], outcomeMint1: outcomeMints[1],
-      outcomeMint2: outcomeMints[2], outcomeMint3: outcomeMints[3],
-      outcomeMint4: outcomeMints[4], outcomeMint5: outcomeMints[5],
-      outcomeMint6: outcomeMints[6], outcomeMint7: outcomeMints[7],
-      userOutcome0: outcomeAtas[0], userOutcome1: outcomeAtas[1],
-      userOutcome2: outcomeAtas[2], userOutcome3: outcomeAtas[3],
-      userOutcome4: outcomeAtas[4], userOutcome5: outcomeAtas[5],
-      userOutcome6: outcomeAtas[6], userOutcome7: outcomeAtas[7],
+      platformTreasuryWallet,
+      platformTreasuryAta,
       collateralTokenProgram,
       tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
     })
+    .remainingAccounts(remainingAccounts)
     .rpc();
 }
 
@@ -353,6 +386,11 @@ export async function voteResolutionTx(
     marketPda,
     resolverIndex
   );
+  const outcomeTally = deriveOutcomeTally(
+    program.programId,
+    marketPda,
+    outcomeIndex
+  );
 
   await program.methods
     .voteResolution({
@@ -368,7 +406,50 @@ export async function voteResolutionTx(
       resolver4: resolverPdas[4], resolver5: resolverPdas[5],
       resolver6: resolverPdas[6], resolver7: resolverPdas[7],
       resolutionVote,
+      outcomeTally,
       systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+export async function revokeResolutionVoteTx(
+  connection: Connection,
+  wallet: WalletContextState,
+  marketPda: PublicKey,
+  marketId: BN,
+  outcomeIndex: number,
+  resolverIndex: number
+): Promise<void> {
+  const program = await getProgram(connection, wallet);
+  if (!wallet.publicKey) throw new Error('Wallet required');
+
+  const resolverPdas = deriveAllResolvers(program.programId, marketPda);
+  const resolutionVote = deriveResolutionVote(
+    program.programId,
+    marketPda,
+    resolverIndex
+  );
+  const outcomeTally = deriveOutcomeTally(
+    program.programId,
+    marketPda,
+    outcomeIndex
+  );
+
+  await program.methods
+    .revokeResolutionVote({
+      marketId,
+      resolverIndex,
+      outcomeIndex,
+    })
+    .accounts({
+      resolverSigner: wallet.publicKey,
+      market: marketPda,
+      resolver0: resolverPdas[0], resolver1: resolverPdas[1],
+      resolver2: resolverPdas[2], resolver3: resolverPdas[3],
+      resolver4: resolverPdas[4], resolver5: resolverPdas[5],
+      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+      resolutionVote,
+      outcomeTally,
     })
     .rpc();
 }
@@ -381,25 +462,23 @@ export async function finalizeResolutionTx(
 ): Promise<void> {
   const program = await getProgram(connection, wallet);
 
-  const votes = Array.from({ length: 8 }, (_, i) =>
-    deriveResolutionVote(program.programId, marketPda, i)
-  );
+  const tallies = deriveAllOutcomeTallies(program.programId, marketPda);
   const infos = await Promise.all(
-    votes.map((v) => connection.getAccountInfo(v))
+    tallies.map((t) => connection.getAccountInfo(t))
   );
 
   await program.methods
     .finalizeResolution({ marketId })
     .accounts({
       market: marketPda,
-      resolutionVote0: infos[0] ? votes[0] : null,
-      resolutionVote1: infos[1] ? votes[1] : null,
-      resolutionVote2: infos[2] ? votes[2] : null,
-      resolutionVote3: infos[3] ? votes[3] : null,
-      resolutionVote4: infos[4] ? votes[4] : null,
-      resolutionVote5: infos[5] ? votes[5] : null,
-      resolutionVote6: infos[6] ? votes[6] : null,
-      resolutionVote7: infos[7] ? votes[7] : null,
+      outcomeTally0: infos[0] ? tallies[0] : null,
+      outcomeTally1: infos[1] ? tallies[1] : null,
+      outcomeTally2: infos[2] ? tallies[2] : null,
+      outcomeTally3: infos[3] ? tallies[3] : null,
+      outcomeTally4: infos[4] ? tallies[4] : null,
+      outcomeTally5: infos[5] ? tallies[5] : null,
+      outcomeTally6: infos[6] ? tallies[6] : null,
+      outcomeTally7: infos[7] ? tallies[7] : null,
     } as any)
     .rpc();
 }
@@ -494,6 +573,10 @@ export async function redeemWinningTx(
     collateralTokenProgram
   );
 
+  const globalConfigPda = deriveGlobalConfig(program.programId);
+  const globalConfig = await (program.account as any).globalConfig.fetch(globalConfigPda);
+  const platformTreasuryWallet = globalConfig.platformTreasury as PublicKey;
+
   const market = await (program.account as any).market.fetch(marketPda);
   const winningIdx = market.resolvedOutcomeIndex as number | null | undefined;
   if (winningIdx === null || winningIdx === undefined) {
@@ -521,8 +604,112 @@ export async function redeemWinningTx(
       outcomeMint4: outcomeMints[4], outcomeMint5: outcomeMints[5],
       outcomeMint6: outcomeMints[6], outcomeMint7: outcomeMints[7],
       userWinningOutcome: outcomeAtas[winningIdx]!,
+      globalConfig: globalConfigPda,
+      platformTreasuryWallet,
       collateralTokenProgram,
       tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+// ─── User profile helpers ────────────────────────────────────────────────────
+
+export interface UserProfileData {
+  displayName: string;
+  url: string;
+  verified: boolean;
+}
+
+/**
+ * Fetch an on-chain UserProfile for any wallet.
+ * Returns null when the account does not exist (profile not yet created).
+ */
+export async function fetchUserProfile(
+  connection: Connection,
+  wallet: WalletContextState,
+  targetWallet: PublicKey
+): Promise<UserProfileData | null> {
+  const program = await getProgram(connection, wallet);
+  const profilePda = deriveUserProfile(program.programId, targetWallet);
+  try {
+    const account = await (program.account as any).userProfile.fetch(profilePda);
+    return {
+      displayName: account.displayName as string,
+      url: account.url as string,
+      verified: account.verified as boolean,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create or update the caller's UserProfile.
+ * The verified flag is preserved on update (set only by the platform authority).
+ */
+export async function upsertUserProfile(
+  connection: Connection,
+  wallet: WalletContextState,
+  displayName: string,
+  url: string
+): Promise<string> {
+  if (!wallet.publicKey) throw new Error('Wallet not connected');
+  const program = await getProgram(connection, wallet);
+  const profilePda = deriveUserProfile(program.programId, wallet.publicKey);
+
+  return (program.methods as any)
+    .upsertUserProfile(displayName, url)
+    .accounts({
+      userProfile: profilePda,
+      wallet: wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+/**
+ * Close the caller's UserProfile and reclaim rent.
+ */
+export async function closeUserProfile(
+  connection: Connection,
+  wallet: WalletContextState
+): Promise<string> {
+  if (!wallet.publicKey) throw new Error('Wallet not connected');
+  const program = await getProgram(connection, wallet);
+  const profilePda = deriveUserProfile(program.programId, wallet.publicKey);
+
+  return (program.methods as any)
+    .closeUserProfile()
+    .accounts({
+      userProfile: profilePda,
+      wallet: wallet.publicKey,
+    })
+    .rpc();
+}
+
+/**
+ * Set or unset the verified flag on a target wallet's profile.
+ * Caller must be the platform primary or secondary authority.
+ */
+export async function verifyUserProfile(
+  connection: Connection,
+  wallet: WalletContextState,
+  targetWallet: PublicKey,
+  verified: boolean
+): Promise<string> {
+  if (!wallet.publicKey) throw new Error('Wallet not connected');
+  const program = await getProgram(connection, wallet);
+  const profilePda = deriveUserProfile(program.programId, targetWallet);
+  const globalConfigPda = deriveGlobalConfig(program.programId);
+
+  return (program.methods as any)
+    .verifyUserProfile(verified)
+    .accounts({
+      userProfile: profilePda,
+      targetWallet,
+      authority: wallet.publicKey,
+      globalConfig: globalConfigPda,
     })
     .rpc();
 }

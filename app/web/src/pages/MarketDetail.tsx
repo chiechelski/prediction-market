@@ -233,14 +233,14 @@ export default function MarketDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <p className="text-surface-500">Loading market…</p>
+        <p className="text-outline">Loading market…</p>
       </div>
     );
   }
   if (error || !market) {
     return (
       <div className="card p-8 text-center">
-        <p className="text-surface-600">{error ?? 'Market not found.'}</p>
+        <p className="text-on-surface-variant">{error ?? 'Market not found.'}</p>
         <Link to="/markets" className="mt-4 inline-block text-brand-600 hover:text-brand-700">
           ← Back to markets
         </Link>
@@ -250,35 +250,38 @@ export default function MarketDetail() {
 
   const outcomeCount = Number(market.outcomeCount);
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col bg-surface-dim px-4 pt-8 pb-12 md:px-6 lg:px-8">
+    <div className="mx-auto w-full max-w-7xl">
       <Link
         to="/markets"
-        className="mb-6 inline-flex items-center gap-1 text-sm text-surface-600 hover:text-surface-900"
+        className="mb-6 inline-flex items-center gap-1 text-sm text-outline hover:text-on-surface transition-colors"
       >
         ← Markets
       </Link>
       <div className="card p-6 space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="font-display text-2xl font-semibold text-surface-900">
+            <h1 className="font-headline text-2xl font-extrabold tracking-tight text-on-surface italic">
               Market {marketKey?.slice(0, 8)}…
             </h1>
-            <p className="mt-1 text-surface-600">
+            <p className="mt-1 text-on-surface-variant">
               {outcomeCount} outcomes · M-of-N: {market.resolutionThreshold}
             </p>
-            <p className="mt-1 font-mono text-xs text-surface-500 break-all">
+            <p className="mt-1 font-mono text-xs text-outline break-all">
               Collateral: {collateralMint?.toBase58()}
             </p>
           </div>
           <span
-            className={`rounded-full px-3 py-1 text-sm font-medium ${
+            className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-widest ${
               status === 'open'
-                ? 'bg-green-100 text-green-800'
+                ? 'bg-secondary/10 text-secondary'
                 : status === 'resolved'
-                  ? 'bg-brand-100 text-brand-800'
+                  ? 'bg-primary/10 text-primary'
                   : status === 'voided'
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-surface-200 text-surface-700'
+                    ? 'bg-error/10 text-error'
+                    : status === 'closing-soon'
+                      ? 'bg-tertiary/10 text-tertiary'
+                      : 'text-outline'
             }`}
           >
             {status}
@@ -286,8 +289,8 @@ export default function MarketDetail() {
         </div>
 
         {!effectiveMarketId && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm text-amber-900">
+          <div className="rounded-xl border border-tertiary/20 bg-tertiary/10 p-4">
+            <p className="text-sm text-tertiary">
               This browser has no stored <code>marketId</code> for this market.
               Enter the u64 market id used at creation (same device saves it
               automatically).
@@ -303,31 +306,34 @@ export default function MarketDetail() {
         )}
 
         {market.resolvedOutcomeIndex != null && (
-          <p className="text-brand-600 font-medium">
+          <p className="text-primary font-medium">
             Resolved: outcome index {market.resolvedOutcomeIndex}
           </p>
         )}
 
         {txError && (
-          <p className="text-sm text-red-600">{txError}</p>
+          <div className="flex items-start gap-2 rounded-xl bg-error/10 border border-error/20 p-3">
+            <span className="material-symbols-outlined text-error text-[16px] mt-0.5">error</span>
+            <p className="text-sm text-error">{txError}</p>
+          </div>
         )}
 
         {!wallet.publicKey && (
-          <p className="text-surface-600">Connect a wallet to transact.</p>
+          <p className="text-on-surface-variant">Connect a wallet to transact.</p>
         )}
 
         {wallet.publicKey && marketIdBn && (
           <>
             <section>
-              <h2 className="text-lg font-semibold text-surface-900">
+              <h2 className="text-lg font-bold text-on-surface">
                 Trade
               </h2>
-              <p className="mt-1 text-sm text-surface-600">
+              <p className="mt-1 text-sm text-on-surface-variant">
                 Mint a complete set (deposit collateral) or redeem one full set.
               </p>
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="block text-xs text-surface-500">Amount</label>
+                  <label className="block text-xs text-outline">Amount</label>
                   <input
                     type="text"
                     value={mintHuman}
@@ -355,15 +361,15 @@ export default function MarketDetail() {
             </section>
 
             <section>
-              <h2 className="text-lg font-semibold text-surface-900">
+              <h2 className="text-lg font-bold text-on-surface">
                 Resolution
               </h2>
-              <p className="mt-1 text-sm text-surface-600">
+              <p className="mt-1 text-sm text-on-surface-variant">
                 Resolvers vote, then anyone can finalize when M agree.
               </p>
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="block text-xs text-surface-500">Outcome</label>
+                  <label className="block text-xs text-outline">Outcome</label>
                   <select
                     value={voteOutcome}
                     onChange={(e) => setVoteOutcome(Number(e.target.value))}
@@ -402,7 +408,7 @@ export default function MarketDetail() {
             </section>
 
             <section>
-              <h2 className="text-lg font-semibold text-surface-900">
+              <h2 className="text-lg font-bold text-on-surface">
                 Creator / resolver actions
               </h2>
               <div className="mt-3 flex flex-wrap gap-3">
@@ -431,12 +437,12 @@ export default function MarketDetail() {
 
             {market.resolvedOutcomeIndex != null && !market.voided && (
               <section>
-                <h2 className="text-lg font-semibold text-surface-900">
+                <h2 className="text-lg font-bold text-on-surface">
                   Redeem winning
                 </h2>
                 <div className="mt-3 flex flex-wrap items-end gap-3">
                   <div>
-                    <label className="block text-xs text-surface-500">
+                    <label className="block text-xs text-outline">
                       Winning tokens (human)
                     </label>
                     <input
@@ -460,6 +466,7 @@ export default function MarketDetail() {
           </>
         )}
       </div>
+    </div>
     </div>
   );
 }

@@ -4,7 +4,12 @@ use crate::errors::PredictionMarketError;
 use crate::state::*;
 use crate::utils::transfer_checked;
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
+use anchor_lang::solana_program::program_option::COption;
+use anchor_lang::solana_program::program_pack::Pack;
+use anchor_lang::system_program::{self, Transfer as SolTransfer};
+use anchor_spl::token::{self, MintTo, Token, TokenAccount};
+use anchor_spl::token::spl_token::state::{Account as SplTokenAccount, Mint as SplMint};
+use anchor_spl::token_interface::TokenInterface;
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct MintCompleteSetArgs {
@@ -12,14 +17,40 @@ pub struct MintCompleteSetArgs {
     pub market_id: u64,
 }
 
-pub fn handler(ctx: Context<MintCompleteSet>, args: MintCompleteSetArgs) -> Result<()> {
+pub fn handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, MintCompleteSet<'info>>,
+    args: MintCompleteSetArgs,
+) -> Result<()> {
     let clock = Clock::get()?;
     let market = &ctx.accounts.market;
     require!(!market.is_closed(&clock), PredictionMarketError::MarketClosed);
     require!(!market.voided, PredictionMarketError::MarketVoided);
     require!(args.amount > 0, PredictionMarketError::ZeroMintAmount);
 
-    let global_bps = ctx.accounts.global_config.platform_fee_bps;
+    require!(
+        ctx.accounts.platform_treasury_wallet.key() == ctx.accounts.global_config.platform_treasury,
+        PredictionMarketError::ConfigUnauthorized
+    );
+    require!(
+        ctx.accounts.platform_treasury_wallet.to_account_info().owner == &system_program::ID,
+        PredictionMarketError::ConfigUnauthorized
+    );
+    let treasury_ata = &ctx.accounts.platform_treasury_ata;
+    require!(
+        treasury_ata.mint == ctx.accounts.collateral_mint.key(),
+        PredictionMarketError::InvalidTreasuryAta
+    );
+    require!(
+        treasury_ata.owner == ctx.accounts.platform_treasury_wallet.key(),
+        PredictionMarketError::InvalidTreasuryAta
+    );
+    require!(
+        treasury_ata.to_account_info().owner == &ctx.accounts.collateral_token_program.key(),
+        PredictionMarketError::InvalidTreasuryAta
+    );
+
+    let global_config = &ctx.accounts.global_config;
+    let global_bps = global_config.platform_fee_bps;
     let platform_fee = market.calculate_platform_fee(args.amount, global_bps);
     let creator_fee = market.calculate_creator_fee(args.amount);
     let net = args
@@ -27,6 +58,21 @@ pub fn handler(ctx: Context<MintCompleteSet>, args: MintCompleteSetArgs) -> Resu
         .checked_sub(platform_fee)
         .and_then(|n| n.checked_sub(creator_fee))
         .ok_or(PredictionMarketError::InvalidFeeBps)?;
+
+    // Flat SOL fee to platform treasury wallet
+    let fee_lamports = global_config.platform_fee_lamports;
+    if fee_lamports > 0 {
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                SolTransfer {
+                    from: ctx.accounts.user.to_account_info(),
+                    to: ctx.accounts.platform_treasury_wallet.to_account_info(),
+                },
+            ),
+            fee_lamports,
+        )?;
+    }
 
     let decimals = ctx.accounts.collateral_mint.decimals;
     let from = ctx.accounts.user_collateral_account.to_account_info();
@@ -45,7 +91,7 @@ pub fn handler(ctx: Context<MintCompleteSet>, args: MintCompleteSetArgs) -> Resu
     if platform_fee > 0 {
         transfer_checked(
             &from,
-            &ctx.accounts.platform_treasury.to_account_info(),
+            &ctx.accounts.platform_treasury_ata.to_account_info(),
             &ctx.accounts.collateral_mint,
             &authority,
             &ctx.accounts.collateral_token_program,
@@ -77,28 +123,62 @@ pub fn handler(ctx: Context<MintCompleteSet>, args: MintCompleteSetArgs) -> Resu
     let signer_seeds: &[&[&[u8]]] = &[market_seeds];
 
     let outcome_count = market.outcome_count as usize;
-    let outcome_accounts = [
-        (&ctx.accounts.outcome_mint_0, &ctx.accounts.user_outcome_0),
-        (&ctx.accounts.outcome_mint_1, &ctx.accounts.user_outcome_1),
-        (&ctx.accounts.outcome_mint_2, &ctx.accounts.user_outcome_2),
-        (&ctx.accounts.outcome_mint_3, &ctx.accounts.user_outcome_3),
-        (&ctx.accounts.outcome_mint_4, &ctx.accounts.user_outcome_4),
-        (&ctx.accounts.outcome_mint_5, &ctx.accounts.user_outcome_5),
-        (&ctx.accounts.outcome_mint_6, &ctx.accounts.user_outcome_6),
-        (&ctx.accounts.outcome_mint_7, &ctx.accounts.user_outcome_7),
-    ];
-    for (mint, dest) in outcome_accounts.iter().take(outcome_count) {
-        let cpi_accounts = MintTo {
-            mint: mint.to_account_info(),
-            to: dest.to_account_info(),
-            authority: ctx.accounts.market.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            cpi_accounts,
-            signer_seeds,
+    let rem = ctx.remaining_accounts;
+    require!(
+        rem.len() == 2 * outcome_count,
+        PredictionMarketError::InvalidMintCompleteSetRemainingAccounts
+    );
+
+    let token_prog = ctx.accounts.token_program.key();
+    for i in 0..outcome_count {
+        let mint_ai = &rem[2 * i];
+        let dest_ai = &rem[2 * i + 1];
+
+        let (expected_mint, _) = Pubkey::find_program_address(
+            &[
+                market.key().as_ref(),
+                b"outcome-mint",
+                &[i as u8],
+            ],
+            ctx.program_id,
         );
-        token::mint_to(cpi_ctx, net)?;
+        require_keys_eq!(mint_ai.key(), expected_mint);
+        require_keys_eq!(*mint_ai.owner, token_prog);
+
+        {
+            let mint_data = mint_ai.try_borrow_data()?;
+            let mint_state = SplMint::unpack(&mint_data)
+                .map_err(|_| error!(PredictionMarketError::InvalidMintCompleteSetRemainingAccounts))?;
+            let auth = match mint_state.mint_authority {
+                COption::Some(a) => a,
+                COption::None => {
+                    return Err(error!(PredictionMarketError::InvalidMintCompleteSetRemainingAccounts));
+                }
+            };
+            require_keys_eq!(auth, market.key());
+        } // mint_data borrow released here — must happen before mint_to CPI below
+
+        require_keys_eq!(*dest_ai.owner, token_prog);
+        {
+            let dest_data = dest_ai.try_borrow_data()?;
+            let dest_state = SplTokenAccount::unpack(&dest_data)
+                .map_err(|_| error!(PredictionMarketError::InvalidMintCompleteSetRemainingAccounts))?;
+            require_keys_eq!(dest_state.owner, ctx.accounts.user.key());
+            require_keys_eq!(dest_state.mint, mint_ai.key());
+        } // dest_data borrow released here — must happen before mint_to CPI below
+
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                MintTo {
+                    mint: rem[2 * i].clone(),
+                    to: rem[2 * i + 1].clone(),
+                    authority: ctx.accounts.market.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            net,
+        )?;
     }
 
     Ok(())
@@ -115,7 +195,7 @@ pub struct MintCompleteSet<'info> {
         seeds = [b"market", market.creator.as_ref(), &args.market_id.to_le_bytes()],
         bump = market.bump,
     )]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
 
     #[account(
         mut,
@@ -134,52 +214,24 @@ pub struct MintCompleteSet<'info> {
     )]
     pub user_collateral_account: Box<Account<'info, TokenAccount>>,
 
-    #[account(mut, address = global_config.platform_treasury)]
-    pub platform_treasury: Box<Account<'info, TokenAccount>>,
-
     #[account(mut, address = market.creator_fee_account)]
     pub creator_fee_account: Box<Account<'info, TokenAccount>>,
 
     #[account(seeds = [b"global-config"], bump)]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(seeds = [b"allowed-mint", collateral_mint.key().as_ref()], bump)]
-    pub allowed_mint: Account<'info, AllowedMint>,
+    pub allowed_mint: Box<Account<'info, AllowedMint>>,
 
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[0]], bump)]
-    pub outcome_mint_0: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[1]], bump)]
-    pub outcome_mint_1: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[2]], bump)]
-    pub outcome_mint_2: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[3]], bump)]
-    pub outcome_mint_3: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[4]], bump)]
-    pub outcome_mint_4: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[5]], bump)]
-    pub outcome_mint_5: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[6]], bump)]
-    pub outcome_mint_6: Box<Account<'info, Mint>>,
-    #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[7]], bump)]
-    pub outcome_mint_7: Box<Account<'info, Mint>>,
+    /// Wallet from global_config.platform_treasury (SOL + fee destination identity).
+    #[account(mut, address = global_config.platform_treasury)]
+    pub platform_treasury_wallet: SystemAccount<'info>,
 
+    /// ATA for collateral mint; mint/owner validated in handler.
     #[account(mut)]
-    pub user_outcome_0: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_1: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_2: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_3: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_4: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_5: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_6: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub user_outcome_7: Box<Account<'info, TokenAccount>>,
+    pub platform_treasury_ata: Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
 
-    pub collateral_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
+    pub collateral_token_program: Interface<'info, TokenInterface>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }

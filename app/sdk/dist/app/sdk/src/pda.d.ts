@@ -18,4 +18,10 @@ export declare const deriveResolver: (programId: PublicKey, market: PublicKey, i
 export declare const deriveAllResolvers: (programId: PublicKey, market: PublicKey) => PublicKey[];
 /** Derive the ResolutionVote PDA for a market and resolver index (0–7). */
 export declare const deriveResolutionVote: (programId: PublicKey, market: PublicKey, resolverIndex: number) => PublicKey;
+/** Per-outcome resolution vote counter PDA (0–7). */
+export declare const deriveOutcomeTally: (programId: PublicKey, market: PublicKey, outcomeIndex: number) => PublicKey;
+/** All eight outcome tally PDAs (unused outcome indices may never be initialized). */
+export declare const deriveAllOutcomeTallies: (programId: PublicKey, market: PublicKey) => PublicKey[];
+/** Derive the UserProfile PDA for a given wallet address. Seeds: ["user-profile", wallet]. */
+export declare const deriveUserProfile: (programId: PublicKey, wallet: PublicKey) => PublicKey;
 //# sourceMappingURL=pda.d.ts.map

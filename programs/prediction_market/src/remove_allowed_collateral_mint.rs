@@ -5,7 +5,9 @@ use anchor_lang::prelude::*;
 
 pub fn handler(ctx: Context<RemoveAllowedCollateralMint>) -> Result<()> {
     require!(
-        ctx.accounts.global_config.is_authority(&ctx.accounts.authority.key()),
+        ctx.accounts
+            .global_config
+            .is_allowed_authority(ctx.accounts.authority.key()),
         crate::errors::PredictionMarketError::ConfigUnauthorized
     );
     Ok(())

@@ -22,6 +22,12 @@
  *   6013 CloseAtMustBeInFuture
  *   6014 ZeroMintAmount
  *   6015 InvalidResolutionThreshold
+ *   6016 InvalidTreasuryAta
+ *   6017 AlreadyVoted
+ *   6018 NotVoted
+ *   6019 OutcomeTallyOverflow
+ *   6020 OutcomeTallyEmpty
+ *   6021 InvalidMintCompleteSetRemainingAccounts
  */
 
 import * as anchor from '@coral-xyz/anchor';
@@ -46,6 +52,7 @@ import { assert } from 'chai';
 import {
   collateralMintKeypair,
   resolverKeypair,
+  userKeypair,
   COLLATERAL_DECIMALS,
   getAta,
   deriveGlobalConfig,
@@ -53,7 +60,9 @@ import {
   deriveMarket,
   deriveVault,
   deriveAllOutcomeMints,
+  deriveAllOutcomeTallies,
   deriveAllResolvers,
+  deriveOutcomeTally,
   deriveResolutionVote,
 } from './test-helpers';
 
@@ -65,12 +74,28 @@ const program = anchor.workspace.PredictionMarket as Program<PredictionMarket>;
 const payer = provider.wallet as anchor.Wallet;
 const connection = provider.connection;
 
+async function outcomeTallyAccountsOptional(marketPda: PublicKey) {
+  const tallies = deriveAllOutcomeTallies(program.programId, marketPda);
+  const infos = await Promise.all(tallies.map((p) => connection.getAccountInfo(p)));
+  return {
+    outcomeTally0: infos[0] ? tallies[0] : null,
+    outcomeTally1: infos[1] ? tallies[1] : null,
+    outcomeTally2: infos[2] ? tallies[2] : null,
+    outcomeTally3: infos[3] ? tallies[3] : null,
+    outcomeTally4: infos[4] ? tallies[4] : null,
+    outcomeTally5: infos[5] ? tallies[5] : null,
+    outcomeTally6: infos[6] ? tallies[6] : null,
+    outcomeTally7: infos[7] ? tallies[7] : null,
+  };
+}
+
 const collateralMint = collateralMintKeypair.publicKey;
 const globalConfigPda = deriveGlobalConfig(program.programId);
 const allowedMintPda = deriveAllowedMint(program.programId, collateralMint);
 const payerCollateralAta = getAta(collateralMint, payer.publicKey);
-const platformTreasuryAta = payerCollateralAta;
-const creatorFeeAta = payerCollateralAta;
+// Use distinct accounts to avoid AccountBorrowFailed on self-transfers in Token CPIs
+const platformTreasuryAta = getAta(collateralMint, userKeypair.publicKey);
+const creatorFeeAta = getAta(collateralMint, resolverKeypair.publicKey);
 
 // Unique market IDs per test group (avoid collision with happy-path suite)
 const BASE_ID = 200000;
@@ -164,24 +189,27 @@ async function createOutcomeAtas(outcomeMints: PublicKey[]): Promise<PublicKey[]
 
 /** Mint a complete set for `payer` */
 async function mintSet(marketPda: PublicKey, marketId: BN, outcomeMints: PublicKey[], outcomeAtas: PublicKey[], amount: BN): Promise<void> {
+  const m = await program.account.market.fetch(marketPda);
+  const n = BN.isBN(m.outcomeCount) ? (m.outcomeCount as BN).toNumber() : Number(m.outcomeCount);
+  const mintRemaining = Array.from({ length: n }, (_, i) => [
+    { pubkey: outcomeMints[i], isSigner: false, isWritable: true },
+    { pubkey: outcomeAtas[i], isSigner: false, isWritable: true },
+  ]).flat();
+
   await program.methods
     .mintCompleteSet({ amount, marketId })
     .accounts({
       user: payer.publicKey, market: marketPda,
       vault: deriveVault(program.programId, marketPda),
       collateralMint, userCollateralAccount: payerCollateralAta,
-      platformTreasury: platformTreasuryAta, creatorFeeAccount: creatorFeeAta,
+      creatorFeeAccount: creatorFeeAta,
       globalConfig: globalConfigPda, allowedMint: allowedMintPda,
-      outcomeMint0: outcomeMints[0], outcomeMint1: outcomeMints[1],
-      outcomeMint2: outcomeMints[2], outcomeMint3: outcomeMints[3],
-      outcomeMint4: outcomeMints[4], outcomeMint5: outcomeMints[5],
-      outcomeMint6: outcomeMints[6], outcomeMint7: outcomeMints[7],
-      userOutcome0: outcomeAtas[0], userOutcome1: outcomeAtas[1],
-      userOutcome2: outcomeAtas[2], userOutcome3: outcomeAtas[3],
-      userOutcome4: outcomeAtas[4], userOutcome5: outcomeAtas[5],
-      userOutcome6: outcomeAtas[6], userOutcome7: outcomeAtas[7],
+      platformTreasuryWallet: userKeypair.publicKey,
+      platformTreasuryAta: platformTreasuryAta,
       collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
     })
+    .remainingAccounts(mintRemaining)
     .rpc({ skipPreflight: true });
 }
 
@@ -567,6 +595,7 @@ describe('edge-cases: resolution — vote', () => {
         .accounts({
           resolverSigner: stranger.publicKey, market: marketPda,
           resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
+          outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
           resolver0: resolverPdas[0], resolver1: resolverPdas[1],
           resolver2: resolverPdas[2], resolver3: resolverPdas[3],
           resolver4: resolverPdas[4], resolver5: resolverPdas[5],
@@ -591,6 +620,7 @@ describe('edge-cases: resolution — vote', () => {
         .accounts({
           resolverSigner: resolverKeypair.publicKey, market: marketPda,
           resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
+          outcomeTally: deriveOutcomeTally(program.programId, marketPda, 5),
           resolver0: resolverPdas[0], resolver1: resolverPdas[1],
           resolver2: resolverPdas[2], resolver3: resolverPdas[3],
           resolver4: resolverPdas[4], resolver5: resolverPdas[5],
@@ -614,7 +644,9 @@ describe('edge-cases: resolution — vote', () => {
       .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 2 })
       .accounts({
         resolverSigner: resolverKeypair.publicKey, market: marketPda,
-        resolutionVote: votePda, resolver0: resolverPdas[0], resolver1: resolverPdas[1],
+        resolutionVote: votePda,
+        outcomeTally: deriveOutcomeTally(program.programId, marketPda, 2),
+        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
         resolver2: resolverPdas[2], resolver3: resolverPdas[3],
         resolver4: resolverPdas[4], resolver5: resolverPdas[5],
         resolver6: resolverPdas[6], resolver7: resolverPdas[7],
@@ -624,7 +656,113 @@ describe('edge-cases: resolution — vote', () => {
       .rpc({ skipPreflight: true });
 
     const vote = await program.account.resolutionVote.fetch(votePda);
+    assert.isTrue(vote.hasVoted);
     assert.equal(vote.outcomeIndex, 2, 'vote should record outcome 2');
+  });
+
+  it('fails to vote twice without revoke (AlreadyVoted)', async () => {
+    const marketId = newMarketId();
+    const { marketPda, resolverPdas } = await createFullMarket(marketId, {
+      resolverPubkeys: [resolverKeypair.publicKey],
+    });
+
+    const accounts = {
+      resolverSigner: resolverKeypair.publicKey,
+      market: marketPda,
+      resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
+      outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
+      resolver0: resolverPdas[0],
+      resolver1: resolverPdas[1],
+      resolver2: resolverPdas[2],
+      resolver3: resolverPdas[3],
+      resolver4: resolverPdas[4],
+      resolver5: resolverPdas[5],
+      resolver6: resolverPdas[6],
+      resolver7: resolverPdas[7],
+      systemProgram: SystemProgram.programId,
+    };
+
+    await program.methods
+      .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
+      .accounts(accounts)
+      .signers([resolverKeypair])
+      .rpc({ skipPreflight: true });
+
+    await assertErrorCode(async () => {
+      await program.methods
+        .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 1 })
+        .accounts({
+          ...accounts,
+          outcomeTally: deriveOutcomeTally(program.programId, marketPda, 1),
+        })
+        .signers([resolverKeypair])
+        .rpc({ skipPreflight: true });
+    }, 6017, 'AlreadyVoted');
+  });
+
+  it('revoke then vote different outcome updates tallies', async () => {
+    const marketId = newMarketId();
+    const { marketPda, resolverPdas } = await createFullMarket(marketId, {
+      outcomeCount: 2,
+      resolverPubkeys: [resolverKeypair.publicKey],
+    });
+    const votePda = deriveResolutionVote(program.programId, marketPda, 0);
+    const tally0 = deriveOutcomeTally(program.programId, marketPda, 0);
+    const tally1 = deriveOutcomeTally(program.programId, marketPda, 1);
+
+    const base = {
+      resolverSigner: resolverKeypair.publicKey,
+      market: marketPda,
+      resolutionVote: votePda,
+      resolver0: resolverPdas[0],
+      resolver1: resolverPdas[1],
+      resolver2: resolverPdas[2],
+      resolver3: resolverPdas[3],
+      resolver4: resolverPdas[4],
+      resolver5: resolverPdas[5],
+      resolver6: resolverPdas[6],
+      resolver7: resolverPdas[7],
+      systemProgram: SystemProgram.programId,
+    };
+
+    await program.methods
+      .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
+      .accounts({ ...base, outcomeTally: tally0 })
+      .signers([resolverKeypair])
+      .rpc({ skipPreflight: true });
+
+    await program.methods
+      .revokeResolutionVote({ marketId, resolverIndex: 0, outcomeIndex: 0 })
+      .accounts({
+        resolverSigner: resolverKeypair.publicKey,
+        market: marketPda,
+        resolutionVote: votePda,
+        outcomeTally: tally0,
+        resolver0: resolverPdas[0],
+        resolver1: resolverPdas[1],
+        resolver2: resolverPdas[2],
+        resolver3: resolverPdas[3],
+        resolver4: resolverPdas[4],
+        resolver5: resolverPdas[5],
+        resolver6: resolverPdas[6],
+        resolver7: resolverPdas[7],
+      })
+      .signers([resolverKeypair])
+      .rpc({ skipPreflight: true });
+
+    await program.methods
+      .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 1 })
+      .accounts({ ...base, outcomeTally: tally1 })
+      .signers([resolverKeypair])
+      .rpc({ skipPreflight: true });
+
+    const t0 = await program.account.outcomeTally.fetch(tally0);
+    const t1 = await program.account.outcomeTally.fetch(tally1);
+    assert.equal(t0.count, 0);
+    assert.equal(t1.count, 1);
+    const vote = await program.account.resolutionVote.fetch(votePda);
+    assert.isTrue(vote.hasVoted);
+    assert.equal(vote.outcomeIndex, 1);
   });
 
   it('finalize_resolution is a no-op when threshold is not met (M-of-N)', async () => {
@@ -643,6 +781,7 @@ describe('edge-cases: resolution — vote', () => {
       .accounts({
         resolverSigner: resolverKeypair.publicKey, market: marketPda,
         resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
+        outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
         resolver0: resolverPdas[0], resolver1: resolverPdas[1],
         resolver2: resolverPdas[2], resolver3: resolverPdas[3],
         resolver4: resolverPdas[4], resolver5: resolverPdas[5],
@@ -656,10 +795,7 @@ describe('edge-cases: resolution — vote', () => {
       .finalizeResolution({ marketId })
       .accounts({
         market: marketPda,
-        resolutionVote0: deriveResolutionVote(program.programId, marketPda, 0),
-        resolutionVote1: null, resolutionVote2: null, resolutionVote3: null,
-        resolutionVote4: null, resolutionVote5: null, resolutionVote6: null,
-        resolutionVote7: null,
+        ...(await outcomeTallyAccountsOptional(marketPda)),
       })
       .rpc({ skipPreflight: true });
 
@@ -682,12 +818,15 @@ describe('edge-cases: redeem_winning', () => {
           user: payer.publicKey, market: marketPda,
           vault: deriveVault(program.programId, marketPda),
           collateralMint, userCollateralAccount: payerCollateralAta,
+          globalConfig: globalConfigPda,
+          platformTreasuryWallet: userKeypair.publicKey,
           outcomeMint0: outcomeMints[0], outcomeMint1: outcomeMints[1],
           outcomeMint2: outcomeMints[2], outcomeMint3: outcomeMints[3],
           outcomeMint4: outcomeMints[4], outcomeMint5: outcomeMints[5],
           outcomeMint6: outcomeMints[6], outcomeMint7: outcomeMints[7],
           userWinningOutcome: outcomeAtas[0],
           collateralTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .rpc({ skipPreflight: true });
     }, 6007, 'MarketNotResolved');
@@ -705,6 +844,7 @@ describe('edge-cases: void market', () => {
       .accounts({
         resolverSigner: resolverKeypair.publicKey, market: marketPda,
         resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
+        outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
         resolver0: resolverPdas[0], resolver1: resolverPdas[1],
         resolver2: resolverPdas[2], resolver3: resolverPdas[3],
         resolver4: resolverPdas[4], resolver5: resolverPdas[5],
@@ -718,10 +858,7 @@ describe('edge-cases: void market', () => {
       .finalizeResolution({ marketId })
       .accounts({
         market: marketPda,
-        resolutionVote0: deriveResolutionVote(program.programId, marketPda, 0),
-        resolutionVote1: null, resolutionVote2: null, resolutionVote3: null,
-        resolutionVote4: null, resolutionVote5: null, resolutionVote6: null,
-        resolutionVote7: null,
+        ...(await outcomeTallyAccountsOptional(marketPda)),
       })
       .rpc({ skipPreflight: true });
 

@@ -29,7 +29,7 @@ pub struct InitializeMarketMints<'info> {
         seeds = [b"market", market.creator.as_ref(), &args.market_id.to_le_bytes()],
         bump = market.bump,
     )]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
 
     pub token_program: Program<'info, Token>,
 

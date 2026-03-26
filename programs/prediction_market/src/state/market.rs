@@ -2,6 +2,25 @@
 
 use anchor_lang::prelude::*;
 
+pub const MARKET_ACCOUNT_SPACE_PADDING: usize = 40;
+
+pub const MARKET_ACCOUNT_SPACE: usize = 8 // discriminator
+    + 32  // collateral_mint (Pubkey)
+    + 1   // collateral_decimals (u8)
+    + 32  // vault (Pubkey)
+    + 1   // outcome_count (u8)
+    + 8   // close_at (i64)
+    + 1   // closed (bool)
+    + 2   // resolved_outcome_index (Option<u8>, max: Some + u8)
+    + 1   // voided (bool)
+    + 1   // resolution_threshold (u8)
+    + 32  // creator (Pubkey)
+    + 2   // creator_fee_bps (u16)
+    + 32  // creator_fee_account (Pubkey)
+    + 2   // platform_fee_bps (u16)
+    + 1   // bump (u8)
+    + MARKET_ACCOUNT_SPACE_PADDING;
+
 #[account]
 pub struct Market {
     pub collateral_mint: Pubkey,
@@ -19,24 +38,11 @@ pub struct Market {
     /// 0 = use global config default
     pub platform_fee_bps: u16,
     pub bump: u8,
+    pub _padding: [u8; MARKET_ACCOUNT_SPACE_PADDING],
 }
 
 impl Market {
-    pub const LEN: usize = 8
-        + 32  // collateral_mint
-        + 1   // collateral_decimals
-        + 32  // vault
-        + 1   // outcome_count
-        + 8   // close_at i64
-        + 1   // closed
-        + 2   // Option<u8>: 1 + 1
-        + 1   // voided
-        + 1   // resolution_threshold
-        + 32  // creator
-        + 2   // creator_fee_bps
-        + 32  // creator_fee_account
-        + 2   // platform_fee_bps
-        + 1;  // bump
+    pub const LEN: usize = MARKET_ACCOUNT_SPACE;
 
     pub fn is_closed(&self, clock: &Clock) -> bool {
         self.closed || clock.unix_timestamp >= self.close_at
@@ -72,5 +78,34 @@ impl Market {
             return 0;
         }
         (amount as u128 * self.creator_fee_bps as u128 / 10000) as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn market_account_space_matches_layout() {
+        // Use `Some` so serialized size matches `MARKET_ACCOUNT_SPACE` (worst case for Option<u8>).
+        let m = Market {
+            collateral_mint: Pubkey::new_unique(),
+            collateral_decimals: 6,
+            vault: Pubkey::new_unique(),
+            outcome_count: 2,
+            close_at: 0,
+            closed: false,
+            resolved_outcome_index: Some(0),
+            voided: false,
+            resolution_threshold: 1,
+            creator: Pubkey::new_unique(),
+            creator_fee_bps: 0,
+            creator_fee_account: Pubkey::new_unique(),
+            platform_fee_bps: 0,
+            bump: 255,
+            _padding: [0u8; MARKET_ACCOUNT_SPACE_PADDING],
+        };
+        let body = m.try_to_vec().expect("serialize");
+        assert_eq!(8 + body.len(), MARKET_ACCOUNT_SPACE);
     }
 }

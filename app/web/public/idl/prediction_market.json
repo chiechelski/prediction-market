@@ -172,6 +172,59 @@
       ]
     },
     {
+      "name": "close_user_profile",
+      "discriminator": [
+        242,
+        80,
+        248,
+        79,
+        81,
+        251,
+        65,
+        113
+      ],
+      "accounts": [
+        {
+          "name": "user_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  45,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wallet",
+          "docs": [
+            "Must match the seeds — only the profile owner can close it."
+          ],
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_market",
       "discriminator": [
         103,
@@ -366,35 +419,35 @@
           }
         },
         {
-          "name": "resolution_vote_0",
+          "name": "outcome_tally_0",
           "optional": true
         },
         {
-          "name": "resolution_vote_1",
+          "name": "outcome_tally_1",
           "optional": true
         },
         {
-          "name": "resolution_vote_2",
+          "name": "outcome_tally_2",
           "optional": true
         },
         {
-          "name": "resolution_vote_3",
+          "name": "outcome_tally_3",
           "optional": true
         },
         {
-          "name": "resolution_vote_4",
+          "name": "outcome_tally_4",
           "optional": true
         },
         {
-          "name": "resolution_vote_5",
+          "name": "outcome_tally_5",
           "optional": true
         },
         {
-          "name": "resolution_vote_6",
+          "name": "outcome_tally_6",
           "optional": true
         },
         {
-          "name": "resolution_vote_7",
+          "name": "outcome_tally_7",
           "optional": true
         }
       ],
@@ -450,8 +503,18 @@
         },
         {
           "name": "authority",
+          "docs": [
+            "The wallet that signs this tx becomes the primary authority."
+          ],
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "secondary_authority",
+          "docs": [
+            "New secondary authority (does NOT need to sign — the primary authority is responsible).",
+            "Pass `Pubkey::default()` to leave it unset."
+          ]
         },
         {
           "name": "system_program",
@@ -460,12 +523,20 @@
       ],
       "args": [
         {
+          "name": "secondary_authority",
+          "type": "pubkey"
+        },
+        {
           "name": "platform_fee_bps",
           "type": "u16"
         },
         {
           "name": "platform_treasury",
           "type": "pubkey"
+        },
+        {
+          "name": "platform_fee_lamports",
+          "type": "u64"
         }
       ]
     },
@@ -735,10 +806,6 @@
           "writable": true
         },
         {
-          "name": "platform_treasury",
-          "writable": true
-        },
-        {
           "name": "creator_fee_account",
           "writable": true
         },
@@ -796,67 +863,17 @@
           }
         },
         {
-          "name": "outcome_mint_0",
+          "name": "platform_treasury_wallet",
+          "docs": [
+            "Wallet from global_config.platform_treasury (SOL + fee destination identity)."
+          ],
           "writable": true
         },
         {
-          "name": "outcome_mint_1",
-          "writable": true
-        },
-        {
-          "name": "outcome_mint_2",
-          "writable": true
-        },
-        {
-          "name": "outcome_mint_3",
-          "writable": true
-        },
-        {
-          "name": "outcome_mint_4",
-          "writable": true
-        },
-        {
-          "name": "outcome_mint_5",
-          "writable": true
-        },
-        {
-          "name": "outcome_mint_6",
-          "writable": true
-        },
-        {
-          "name": "outcome_mint_7",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_0",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_1",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_2",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_3",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_4",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_5",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_6",
-          "writable": true
-        },
-        {
-          "name": "user_outcome_7",
+          "name": "platform_treasury_ata",
+          "docs": [
+            "ATA for collateral mint; mint/owner validated in handler."
+          ],
           "writable": true
         },
         {
@@ -865,6 +882,10 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1148,11 +1169,47 @@
           "writable": true
         },
         {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "platform_treasury_wallet",
+          "docs": [
+            "Wallet address that receives the flat SOL fee."
+          ],
+          "writable": true
+        },
+        {
           "name": "collateral_token_program"
         },
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1245,6 +1302,96 @@
       "args": []
     },
     {
+      "name": "revoke_resolution_vote",
+      "discriminator": [
+        128,
+        185,
+        253,
+        225,
+        238,
+        21,
+        110,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "resolver_signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver_0"
+        },
+        {
+          "name": "resolver_1"
+        },
+        {
+          "name": "resolver_2"
+        },
+        {
+          "name": "resolver_3"
+        },
+        {
+          "name": "resolver_4"
+        },
+        {
+          "name": "resolver_5"
+        },
+        {
+          "name": "resolver_6"
+        },
+        {
+          "name": "resolver_7"
+        },
+        {
+          "name": "resolution_vote",
+          "writable": true
+        },
+        {
+          "name": "outcome_tally",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RevokeResolutionVoteArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "update_config",
       "discriminator": [
         29,
@@ -1285,10 +1432,24 @@
         },
         {
           "name": "authority",
+          "docs": [
+            "Current authority (primary or secondary) — must sign."
+          ],
           "signer": true
+        },
+        {
+          "name": "new_authority",
+          "docs": [
+            "The new primary authority after this update.",
+            "Does NOT need to sign — pass the same key as `authority` to keep it unchanged."
+          ]
         }
       ],
       "args": [
+        {
+          "name": "secondary_authority",
+          "type": "pubkey"
+        },
         {
           "name": "platform_fee_bps",
           "type": "u16"
@@ -1296,6 +1457,169 @@
         {
           "name": "platform_treasury",
           "type": "pubkey"
+        },
+        {
+          "name": "platform_fee_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "upsert_user_profile",
+      "discriminator": [
+        28,
+        23,
+        233,
+        225,
+        9,
+        108,
+        138,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "user_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  45,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wallet",
+          "docs": [
+            "The wallet owner — pays rent on first creation, signs all updates."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "display_name",
+          "type": "string"
+        },
+        {
+          "name": "url",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "verify_user_profile",
+      "discriminator": [
+        187,
+        26,
+        249,
+        161,
+        54,
+        75,
+        107,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "user_profile",
+          "docs": [
+            "The profile to verify. Must already exist — user must have called",
+            "`upsert_user_profile` first. The `target_wallet` key is embedded in the",
+            "PDA seeds so the authority must pass the correct account."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  45,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "target_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "target_wallet",
+          "docs": [
+            "The wallet whose profile is being verified (not required to sign)."
+          ]
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "Platform primary or secondary authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "verified",
+          "type": "bool"
         }
       ]
     },
@@ -1455,6 +1779,10 @@
           "writable": true
         },
         {
+          "name": "outcome_tally",
+          "writable": true
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1512,6 +1840,19 @@
       ]
     },
     {
+      "name": "OutcomeTally",
+      "discriminator": [
+        31,
+        29,
+        100,
+        65,
+        205,
+        92,
+        54,
+        136
+      ]
+    },
+    {
       "name": "ResolutionVote",
       "discriminator": [
         162,
@@ -1535,6 +1876,19 @@
         124,
         132,
         79
+      ]
+    },
+    {
+      "name": "UserProfile",
+      "discriminator": [
+        32,
+        37,
+        119,
+        205,
+        179,
+        180,
+        13,
+        194
       ]
     }
   ],
@@ -1618,6 +1972,46 @@
       "code": 6015,
       "name": "InvalidResolutionThreshold",
       "msg": "Invalid resolution threshold (M must be <= number of resolvers)"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidTreasuryAta",
+      "msg": "Platform treasury token account mint or owner does not match global config"
+    },
+    {
+      "code": 6017,
+      "name": "AlreadyVoted",
+      "msg": "Resolver has already voted; call revoke_resolution_vote before voting again"
+    },
+    {
+      "code": 6018,
+      "name": "NotVoted",
+      "msg": "No active vote to revoke"
+    },
+    {
+      "code": 6019,
+      "name": "OutcomeTallyOverflow",
+      "msg": "Outcome tally counter would overflow"
+    },
+    {
+      "code": 6020,
+      "name": "OutcomeTallyEmpty",
+      "msg": "Outcome tally counter is zero"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidMintCompleteSetRemainingAccounts",
+      "msg": "mint_complete_set: remaining accounts must be [outcome_mint_i, user_ata_i] pairs; len = 2 * outcome_count"
+    },
+    {
+      "code": 6022,
+      "name": "DisplayNameTooLong",
+      "msg": "Display name exceeds 50 bytes"
+    },
+    {
+      "code": 6023,
+      "name": "UrlTooLong",
+      "msg": "URL exceeds 100 bytes"
     }
   ],
   "types": [
@@ -1632,6 +2026,15 @@
           {
             "name": "mint",
             "type": "pubkey"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                40
+              ]
+            }
           }
         ]
       }
@@ -1693,7 +2096,7 @@
     {
       "name": "FinalizeResolutionArgs",
       "docs": [
-        "Check M-of-N resolution votes and mark market resolved when threshold is met.",
+        "Check M-of-N using per-outcome tally PDAs and mark the market resolved when threshold is met.",
         "Anyone can call. No-op if already resolved or threshold not met."
       ],
       "type": {
@@ -1716,12 +2119,38 @@
             "type": "pubkey"
           },
           {
+            "name": "secondary_authority",
+            "docs": [
+              "Backup authority — same permissions as `authority`. `Pubkey::default()` disables."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "platform_fee_bps",
             "type": "u16"
           },
           {
             "name": "platform_treasury",
+            "docs": [
+              "Wallet that receives platform token fees (ATA derived per collateral mint)."
+            ],
             "type": "pubkey"
+          },
+          {
+            "name": "platform_fee_lamports",
+            "docs": [
+              "Flat SOL fee (lamports) per user mint / redeem."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
           }
         ]
       }
@@ -1836,6 +2265,15 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                40
+              ]
+            }
           }
         ]
       }
@@ -1852,6 +2290,31 @@
           {
             "name": "market_id",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OutcomeTally",
+      "docs": [
+        "Per-outcome vote counter for resolution (M-of-N). PDA seeds:",
+        "`[market, b\"outcome-tally\", outcome_index]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "count",
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                40
+              ]
+            }
           }
         ]
       }
@@ -1886,12 +2349,30 @@
     },
     {
       "name": "ResolutionVote",
+      "docs": [
+        "One PDA per resolver slot (`[market, b\"vote\", resolver_index]`).",
+        "A resolver may only have one active vote at a time: vote sets `has_voted`,",
+        "revoke clears it so they can vote again (1 → 0 → 1 when changing outcome)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
+            "name": "has_voted",
+            "type": "bool"
+          },
+          {
             "name": "outcome_index",
             "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                40
+              ]
+            }
           }
         ]
       }
@@ -1907,6 +2388,80 @@
           {
             "name": "resolver_pubkey",
             "type": "pubkey"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                40
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RevokeResolutionVoteArgs",
+      "docs": [
+        "Clears a resolver's active vote (1 → 0): decrements the tally for `outcome_index` and",
+        "sets `has_voted` false. `outcome_index` must match the stored vote."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "resolver_index",
+            "type": "u8"
+          },
+          {
+            "name": "outcome_index",
+            "docs": [
+              "Must equal the current `resolution_vote.outcome_index` while `has_voted` is true."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserProfile",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "display_name",
+            "docs": [
+              "Optional display name chosen by the wallet owner. Max 50 bytes UTF-8."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "url",
+            "docs": [
+              "Optional URL (website / social). Max 100 bytes UTF-8."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "verified",
+            "docs": [
+              "Set exclusively by the platform authority via `verify_user_profile`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                31
+              ]
+            }
           }
         ]
       }
@@ -1929,7 +2484,8 @@
     {
       "name": "VoteResolutionArgs",
       "docs": [
-        "A resolver submits their vote for an outcome. Call finalize_resolution to apply M-of-N and mark resolved."
+        "A resolver casts a vote for an outcome. Requires `has_voted == false` on the vote PDA",
+        "(first vote or after `revoke_resolution_vote`). Increments the per-outcome tally PDA."
       ],
       "type": {
         "kind": "struct",

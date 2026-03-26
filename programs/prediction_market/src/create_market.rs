@@ -60,6 +60,7 @@ pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()>
     market.creator_fee_account = ctx.accounts.creator_fee_account.key();
     market.platform_fee_bps = args.platform_fee_bps;
     market.bump = ctx.bumps.market;
+    market._padding = [0u8; MARKET_ACCOUNT_SPACE_PADDING];
 
     Ok(())
 }

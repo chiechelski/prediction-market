@@ -7,6 +7,7 @@ import CreateMarket from '@/pages/CreateMarket';
 import MarketDetail from '@/pages/MarketDetail';
 import Platform from '@/pages/Platform';
 import Docs from '@/pages/Docs';
+import Settings from '@/pages/Settings';
 
 export default function App() {
   const { connected } = useWallet();
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="judges" element={connected ? <Dashboard tab="judges" /> : <Navigate to="/" replace />} />
         <Route path="create" element={connected ? <CreateMarket /> : <Navigate to="/" replace />} />
         <Route path="platform" element={connected ? <Platform /> : <Navigate to="/" replace />} />
+        <Route path="settings" element={connected ? <Settings /> : <Navigate to="/" replace />} />
         <Route path="docs" element={<Docs />} />
         <Route path="market/:marketKey" element={connected ? <MarketDetail /> : <Navigate to="/" replace />} />
       </Route>
