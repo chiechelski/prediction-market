@@ -14,6 +14,7 @@ Frontend for the Prediction Market Solana program. Built with React 18 + Vite + 
 6. [Page-by-Page Breakdown](#page-by-page-breakdown)
 7. [Data & State Management](#data--state-management)
 8. [On-Chain Capabilities (Program + SDK)](#on-chain-capabilities-program--sdk)
+9. [Trading model & UX roadmap](#trading-model--ux-roadmap)
 
 ---
 
@@ -83,7 +84,7 @@ Open [http://localhost:5173](http://localhost:5173). Connect a wallet on **devne
 - **Market discovery** (`/markets`) — `program.account.market.all()` scan merged with localStorage registry for human-readable labels.
 - **Creator + judge tabs** — filter by wallet pubkey or resolver PDA slot.
 - **Market detail** (`/market/:marketKey`) — loads market account, shows open/closed/resolved/voided status, and surfaces all user-facing actions (see below).
-- **Trading** — mint complete set (collateral → all outcome tokens), redeem complete set (return all outcome tokens → collateral).
+- **Trading** — mint complete set (collateral → all outcome tokens), redeem complete set (return all outcome tokens → collateral). See [Trading model & UX roadmap](#trading-model--ux-roadmap) for why there is no single-outcome mint on-chain and what follow-ups are documented.
 - **Resolution** — vote for an outcome, finalize resolution (anyone, once threshold reached), redeem winning tokens for collateral after resolution.
 - **Lifecycle** — close market early (creator), void market.
 - **Docs page** — program overview, SDK setup commands, PDA reference, `PredictionMarketClient` usage examples, program ID.
@@ -278,3 +279,15 @@ Program ID: `C5QvWnGHeC6o7N68heWFKPvC35eggZ9Mrgqzj86WwrBv`
 | `redeem_winning` | `redeemWinning` | Market detail — Redeem |
 | `close_market_early` | `closeMarketEarly` | Market detail — Creator |
 | `void_market` | `voidMarket` | Market detail — Creator |
+
+---
+
+## Trading model & UX roadmap
+
+The program uses **conditional tokens with complete sets**: depositing collateral mints **all** outcome tokens at once; there is no instruction for “mint only one outcome.” That matches **product goal 1 (explain-only)** in the repo: the market detail **Participate** section explains the model, and resolver/admin actions are collapsed.
+
+**Future options** (mint + swap for a “pick one” *feel*, or a full on-chain AMM) are scoped in:
+
+[`../docs/market-mechanics-and-ux-options.md`](../docs/market-mechanics-and-ux-options.md)
+
+That document records the **goal decision**, the **design rationale**, and **follow-up implementation** notes for Goals 2 (guided swap) and 3 (protocol AMM).

@@ -16,6 +16,20 @@ import {
   redeemWinningTx,
   findResolverSlot,
 } from '@/lib/marketActions';
+
+/** Slash-separated labels from create flow, e.g. "Yes / No / Draw". */
+function outcomeLabelsFromRegistry(
+  label: string | undefined,
+  outcomeCount: number
+): string[] {
+  const parts = label
+    ?.split(' / ')
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
+  if (parts.length === outcomeCount && outcomeCount > 0) return parts;
+  return Array.from({ length: outcomeCount }, (_, i) => `Outcome ${i + 1}`);
+}
+
 export default function MarketDetail() {
   const { marketKey } = useParams<{ marketKey: string }>();
   const { connection } = useConnection();
@@ -301,6 +315,7 @@ export default function MarketDetail() {
     registry?.title?.trim() ||
     `Market ${marketKey?.slice(0, 8)}…`;
   const displayCategory = chainCategoryLabel || registry?.category;
+  const outcomeLabels = outcomeLabelsFromRegistry(registry?.label, outcomeCount);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface-dim px-4 pt-8 pb-12 md:px-6 lg:px-8">
@@ -327,9 +342,14 @@ export default function MarketDetail() {
             <p className="mt-1 text-on-surface-variant">
               {outcomeCount} outcomes · M-of-N: {market.resolutionThreshold}
             </p>
-            <p className="mt-1 font-mono text-xs text-outline break-all">
-              Collateral: {collateralMint?.toBase58()}
-            </p>
+            <details className="mt-2 text-xs text-outline">
+              <summary className="cursor-pointer select-none text-outline hover:text-on-surface-variant">
+                Collateral mint (technical)
+              </summary>
+              <p className="mt-1 font-mono break-all pl-1">
+                {collateralMint?.toBase58()}
+              </p>
+            </details>
           </div>
           <span
             className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-widest ${
@@ -384,16 +404,31 @@ export default function MarketDetail() {
 
         {wallet.publicKey && marketIdBn && (
           <>
-            <section>
+            <section className="rounded-xl border border-outline-variant/15 bg-surface-container-lowest/80 p-4">
               <h2 className="text-lg font-bold text-on-surface">
-                Trade
+                Participate
               </h2>
-              <p className="mt-1 text-sm text-on-surface-variant">
-                Mint a complete set (deposit collateral) or redeem one full set.
+              <p className="mt-2 text-sm text-on-surface-variant leading-relaxed">
+                This market uses <strong className="text-on-surface">one token per outcome</strong>{' '}
+                (e.g. {outcomeLabels.slice(0, 3).join(', ')}
+                {outcomeCount > 3 ? '…' : ''}).{' '}
+                <strong className="text-on-surface">Deposit</strong> collateral to receive{' '}
+                <em>all</em> of those tokens at once—not a single “pick.” To lean toward one outcome
+                you’d trade tokens elsewhere (this app doesn’t include a swap).
               </p>
-              <div className="mt-3 flex flex-wrap items-end gap-3">
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-on-surface-variant">
+                <li>
+                  <strong className="text-on-surface">Deposit</strong> — pay collateral, get 1 unit of
+                  every outcome token (protocol term: “mint complete set”).
+                </li>
+                <li>
+                  <strong className="text-on-surface">Withdraw full set</strong> — burn 1 of each
+                  outcome token, get your collateral back (protocol: “redeem complete set”).
+                </li>
+              </ul>
+              <div className="mt-4 flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="block text-xs text-outline">Amount</label>
+                  <label className="block text-xs text-outline">Amount (collateral)</label>
                   <input
                     type="text"
                     value={mintHuman}
@@ -407,7 +442,7 @@ export default function MarketDetail() {
                   onClick={handleMint}
                   className="btn-primary disabled:opacity-50"
                 >
-                  Mint complete set
+                  Deposit &amp; get all outcome tokens
                 </button>
                 <button
                   type="button"
@@ -415,29 +450,66 @@ export default function MarketDetail() {
                   onClick={handleRedeemSet}
                   className="btn-secondary disabled:opacity-50"
                 >
-                  Redeem 1 full set
+                  Withdraw (return full set)
                 </button>
               </div>
             </section>
 
-            <section>
-              <h2 className="text-lg font-bold text-on-surface">
-                Resolution
-              </h2>
-              <p className="mt-1 text-sm text-on-surface-variant">
-                Resolvers vote, then anyone can finalize when M agree.
+            {market.resolvedOutcomeIndex != null && !market.voided && (
+              <section>
+                <h2 className="text-lg font-bold text-on-surface">
+                  Claim payout
+                </h2>
+                <p className="mt-1 text-sm text-on-surface-variant">
+                  After resolution, redeem winning outcome tokens for collateral.
+                </p>
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="block text-xs text-outline">
+                      Amount (winning tokens)
+                    </label>
+                    <input
+                      type="text"
+                      value={winHuman}
+                      onChange={(e) => setWinHuman(e.target.value)}
+                      className="input w-32"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handleRedeemWinning}
+                    className="btn-primary disabled:opacity-50"
+                  >
+                    Redeem for collateral
+                  </button>
+                </div>
+              </section>
+            )}
+
+            <details className="group rounded-xl border border-outline-variant/10 bg-surface-container-lowest/40 p-4">
+              <summary className="cursor-pointer list-none font-bold text-on-surface marker:content-none [&::-webkit-details-marker]:hidden">
+                <span className="inline-flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[20px] text-outline transition-transform group-open:rotate-90">
+                    chevron_right
+                  </span>
+                  Resolvers &amp; resolution
+                </span>
+              </summary>
+              <p className="mt-2 text-sm text-on-surface-variant">
+                Assigned wallets vote on the winning outcome; when enough agree, anyone can finalize.
               </p>
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="block text-xs text-outline">Outcome</label>
+                  <label className="block text-xs text-outline">Vote for</label>
                   <select
                     value={voteOutcome}
                     onChange={(e) => setVoteOutcome(Number(e.target.value))}
-                    className="input"
+                    className="input min-w-[12rem]"
                   >
                     {Array.from({ length: outcomeCount }, (_, i) => (
                       <option key={i} value={i}>
-                        Index {i}
+                        {outcomeLabels[i]}
                       </option>
                     ))}
                   </select>
@@ -454,7 +526,7 @@ export default function MarketDetail() {
                   className="btn-primary disabled:opacity-50"
                 >
                   Submit vote
-                  {resolverSlot !== null ? ` (slot ${resolverSlot})` : ' (not a resolver)'}
+                  {resolverSlot !== null ? ` (resolver ${resolverSlot})` : ' (not a resolver)'}
                 </button>
                 <button
                   type="button"
@@ -465,12 +537,17 @@ export default function MarketDetail() {
                   Finalize resolution
                 </button>
               </div>
-            </section>
+            </details>
 
-            <section>
-              <h2 className="text-lg font-bold text-on-surface">
-                Creator / resolver actions
-              </h2>
+            <details className="group rounded-xl border border-outline-variant/10 bg-surface-container-lowest/40 p-4">
+              <summary className="cursor-pointer list-none font-bold text-on-surface marker:content-none [&::-webkit-details-marker]:hidden">
+                <span className="inline-flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[20px] text-outline transition-transform group-open:rotate-90">
+                    chevron_right
+                  </span>
+                  Creator &amp; admin
+                </span>
+              </summary>
               <div className="mt-3 flex flex-wrap gap-3">
                 <button
                   type="button"
@@ -493,36 +570,7 @@ export default function MarketDetail() {
                   Void market
                 </button>
               </div>
-            </section>
-
-            {market.resolvedOutcomeIndex != null && !market.voided && (
-              <section>
-                <h2 className="text-lg font-bold text-on-surface">
-                  Redeem winning
-                </h2>
-                <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="block text-xs text-outline">
-                      Winning tokens (human)
-                    </label>
-                    <input
-                      type="text"
-                      value={winHuman}
-                      onChange={(e) => setWinHuman(e.target.value)}
-                      className="input w-32"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={handleRedeemWinning}
-                    className="btn-primary disabled:opacity-50"
-                  >
-                    Redeem winning
-                  </button>
-                </div>
-              </section>
-            )}
+            </details>
           </>
         )}
       </div>
