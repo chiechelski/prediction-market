@@ -27,9 +27,16 @@ import {
   deriveOutcomeTally,
   deriveResolutionVote,
   deriveUserProfile,
+  deriveParimutuelState,
+  deriveParimutuelPosition,
 } from './pda';
+import { toMarketTypeIx } from './types';
 import type {
   CreateMarketParams,
+  InitializeParimutuelStateParams,
+  ParimutuelStakeParams,
+  ParimutuelWithdrawParams,
+  ParimutuelClaimParams,
   InitializeConfigParams,
   UpdateConfigParams,
   InitializeMarketResolversParams,
@@ -81,9 +88,11 @@ export class PredictionMarketClient {
     return this.program.methods
       .initializeConfig(
         params.secondaryAuthority,
-        params.platformFeeBps,
+        params.depositPlatformFeeBps,
         params.platformTreasuryWallet,
         params.platformFeeLamports,
+        params.parimutuelPenaltyProtocolShareBps,
+        params.parimutuelWithdrawPlatformFeeBps,
       )
       .accounts({
         globalConfig: this.globalConfig,
@@ -105,9 +114,11 @@ export class PredictionMarketClient {
     return this.program.methods
       .updateConfig(
         params.secondaryAuthority,
-        params.platformFeeBps,
+        params.depositPlatformFeeBps,
         params.platformTreasuryWallet,
         params.platformFeeLamports,
+        params.parimutuelPenaltyProtocolShareBps,
+        params.parimutuelWithdrawPlatformFeeBps,
       )
       .accounts({
         globalConfig: this.globalConfig,
@@ -176,9 +187,10 @@ export class PredictionMarketClient {
         resolutionThreshold: params.resolutionThreshold,
         closeAt: params.closeAt,
         creatorFeeBps: params.creatorFeeBps,
-        platformFeeBps: params.platformFeeBps,
+        depositPlatformFeeBps: params.depositPlatformFeeBps,
         numResolvers: params.numResolvers,
         title: params.title,
+        marketType: toMarketTypeIx(params.marketType),
       })
       .accounts({
         payer: this.walletKey,
@@ -282,8 +294,196 @@ export class PredictionMarketClient {
       resolverPubkeys,
       numResolvers: params.numResolvers,
     }, opts);
-    await this.initializeMarketMints(marketPda, params.marketId, opts);
+    if (params.marketType === 'parimutuel') {
+      const gc = await this.fetchGlobalConfig();
+      const pi = params.parimutuelInit ?? {};
+      const penaltySurplusCreatorShareBps =
+        pi.penaltySurplusCreatorShareBps ??
+        10000 - gc.parimutuelPenaltyProtocolShareBps;
+      await this.initializeParimutuelState(marketPda, {
+        marketId: params.marketId,
+        earlyWithdrawPenaltyBps: pi.earlyWithdrawPenaltyBps ?? 500,
+        penaltyKeptInPoolBps: pi.penaltyKeptInPoolBps ?? 8000,
+        penaltySurplusCreatorShareBps,
+      }, opts);
+    } else {
+      await this.initializeMarketMints(marketPda, params.marketId, opts);
+    }
     return marketPda;
+  }
+
+  /** Pari-mutuel pool + penalty params (step after resolvers, replaces mint init). */
+  async initializeParimutuelState(
+    marketPda: PublicKey,
+    params: InitializeParimutuelStateParams,
+    opts?: anchor.web3.ConfirmOptions
+  ): Promise<string> {
+    const parimutuelState = deriveParimutuelState(this.program.programId, marketPda);
+    return this.program.methods
+      .initializeParimutuelState({
+        marketId: params.marketId,
+        earlyWithdrawPenaltyBps: params.earlyWithdrawPenaltyBps,
+        penaltyKeptInPoolBps: params.penaltyKeptInPoolBps,
+        penaltySurplusCreatorShareBps: params.penaltySurplusCreatorShareBps,
+      })
+      .accounts({
+        payer: this.walletKey,
+        market: marketPda,
+        globalConfig: this.globalConfig,
+        parimutuelState,
+        systemProgram: SystemProgram.programId,
+      } as AnyAccounts)
+      .rpc(opts ?? { skipPreflight: true });
+  }
+
+  async parimutuelStake(
+    marketPda: PublicKey,
+    params: ParimutuelStakeParams,
+    opts?: anchor.web3.ConfirmOptions
+  ): Promise<string> {
+    const parimutuelState = deriveParimutuelState(this.program.programId, marketPda);
+    const market = await this.fetchMarket(marketPda);
+    const globalConfig = await this.fetchGlobalConfig();
+    const position = deriveParimutuelPosition(
+      this.program.programId,
+      marketPda,
+      this.walletKey,
+      params.outcomeIndex
+    );
+    const vaultPda = deriveVault(this.program.programId, marketPda);
+    const allowedMint = deriveAllowedMint(this.program.programId, market.collateralMint);
+    const userCollateral = getAssociatedTokenAddressSync(
+      market.collateralMint,
+      this.walletKey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    const platformTreasuryAta = getAssociatedTokenAddressSync(
+      market.collateralMint,
+      globalConfig.platformTreasury,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    return this.program.methods
+      .parimutuelStake({
+        marketId: params.marketId,
+        outcomeIndex: params.outcomeIndex,
+        amount: params.amount,
+      })
+      .accounts({
+        user: this.walletKey,
+        market: marketPda,
+        parimutuelState,
+        position,
+        vault: vaultPda,
+        collateralMint: market.collateralMint,
+        userCollateralAccount: userCollateral,
+        creatorFeeAccount: market.creatorFeeAccount,
+        globalConfig: this.globalConfig,
+        platformTreasuryWallet: globalConfig.platformTreasury,
+        platformTreasuryAta,
+        allowedMint,
+        collateralTokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      } as AnyAccounts)
+      .rpc(opts ?? { skipPreflight: true });
+  }
+
+  async parimutuelWithdraw(
+    marketPda: PublicKey,
+    params: ParimutuelWithdrawParams,
+    opts?: anchor.web3.ConfirmOptions
+  ): Promise<string> {
+    const parimutuelState = deriveParimutuelState(this.program.programId, marketPda);
+    const market = await this.fetchMarket(marketPda);
+    const position = deriveParimutuelPosition(
+      this.program.programId,
+      marketPda,
+      this.walletKey,
+      params.outcomeIndex
+    );
+    const vaultPda = deriveVault(this.program.programId, marketPda);
+    const globalConfig = await this.fetchGlobalConfig();
+    const userCollateral = getAssociatedTokenAddressSync(
+      market.collateralMint,
+      this.walletKey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    const platformTreasuryAta = getAssociatedTokenAddressSync(
+      market.collateralMint,
+      globalConfig.platformTreasury,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    return this.program.methods
+      .parimutuelWithdraw({
+        marketId: params.marketId,
+        outcomeIndex: params.outcomeIndex,
+        amount: params.amount,
+      })
+      .accounts({
+        user: this.walletKey,
+        market: marketPda,
+        creatorFeeAccount: market.creatorFeeAccount,
+        parimutuelState,
+        position,
+        vault: vaultPda,
+        collateralMint: market.collateralMint,
+        userCollateralAccount: userCollateral,
+        globalConfig: this.globalConfig,
+        platformTreasuryWallet: globalConfig.platformTreasury,
+        platformTreasuryAta,
+        collateralTokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      } as AnyAccounts)
+      .rpc(opts ?? { skipPreflight: true });
+  }
+
+  async parimutuelClaim(
+    marketPda: PublicKey,
+    params: ParimutuelClaimParams,
+    opts?: anchor.web3.ConfirmOptions
+  ): Promise<string> {
+    const parimutuelState = deriveParimutuelState(this.program.programId, marketPda);
+    const market = await this.fetchMarket(marketPda);
+    const position = deriveParimutuelPosition(
+      this.program.programId,
+      marketPda,
+      this.walletKey,
+      params.outcomeIndex
+    );
+    const vaultPda = deriveVault(this.program.programId, marketPda);
+    const userCollateral = getAssociatedTokenAddressSync(
+      market.collateralMint,
+      this.walletKey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    return this.program.methods
+      .parimutuelClaim({
+        marketId: params.marketId,
+        outcomeIndex: params.outcomeIndex,
+      })
+      .accounts({
+        user: this.walletKey,
+        market: marketPda,
+        parimutuelState,
+        position,
+        vault: vaultPda,
+        collateralMint: market.collateralMint,
+        userCollateralAccount: userCollateral,
+        collateralTokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      } as AnyAccounts)
+      .rpc(opts ?? { skipPreflight: true });
   }
 
   // ─── Trading ────────────────────────────────────────────────────────────────

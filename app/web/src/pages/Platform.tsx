@@ -14,11 +14,15 @@ import {
   updateMarketCategoryTx,
   type UserProfileData,
 } from '@/lib/marketActions';
+import { formatBpsAsPercent } from '@/lib/bps';
+import { useToast } from '@/context/ToastContext';
 
 type ConfigState = {
   authority: string;
   secondaryAuthority: string;
-  platformFeeBps: number;
+  depositPlatformFeeBps: number;
+  parimutuelPenaltyProtocolShareBps: number;
+  parimutuelWithdrawPlatformFeeBps: number;
   platformTreasury: string;
   platformFeeLamports: number;
   nextCategoryId: number;
@@ -34,11 +38,16 @@ type CategoryRow = {
 export default function Platform() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const toast = useToast();
   const [config, setConfig] = useState<ConfigState>(null);
   const [loading, setLoading] = useState(true);
 
   const [secondaryAuthority, setSecondaryAuthority] = useState('');
-  const [platformFeeBps, setPlatformFeeBps] = useState(100);
+  const [depositPlatformFeeBps, setDepositPlatformFeeBps] = useState(100);
+  const [parimutuelPenaltyProtocolShareBps, setParimutuelPenaltyProtocolShareBps] =
+    useState(2000);
+  const [parimutuelWithdrawPlatformFeeBps, setParimutuelWithdrawPlatformFeeBps] =
+    useState(0);
   const [platformTreasury, setPlatformTreasury] = useState('');
   const [platformFeeLamports, setPlatformFeeLamports] = useState(357_000);
   const [updateLoading, setUpdateLoading] = useState(false);
@@ -100,13 +109,23 @@ export default function Platform() {
           setConfig({
             authority: account.authority.toBase58(),
             secondaryAuthority: secAuth === DEFAULT_PK ? '' : secAuth,
-            platformFeeBps: account.platformFeeBps,
+            depositPlatformFeeBps: account.depositPlatformFeeBps,
+            parimutuelPenaltyProtocolShareBps:
+              account.parimutuelPenaltyProtocolShareBps,
+            parimutuelWithdrawPlatformFeeBps:
+              account.parimutuelWithdrawPlatformFeeBps ?? 0,
             platformTreasury: account.platformTreasury.toBase58(),
             platformFeeLamports: account.platformFeeLamports?.toNumber?.() ?? 0,
             nextCategoryId: (account.nextCategoryId as BN).toNumber(),
           });
           setSecondaryAuthority(secAuth === DEFAULT_PK ? '' : secAuth);
-          setPlatformFeeBps(account.platformFeeBps);
+          setDepositPlatformFeeBps(account.depositPlatformFeeBps);
+          setParimutuelPenaltyProtocolShareBps(
+            account.parimutuelPenaltyProtocolShareBps
+          );
+          setParimutuelWithdrawPlatformFeeBps(
+            account.parimutuelWithdrawPlatformFeeBps ?? 0
+          );
           setPlatformTreasury(account.platformTreasury.toBase58());
           setPlatformFeeLamports(account.platformFeeLamports?.toNumber?.() ?? 0);
         }
@@ -146,7 +165,14 @@ export default function Platform() {
       const DEFAULT_PK = new PublicKey('11111111111111111111111111111111');
       const secAuthPubkey = secondaryAuthority.trim() ? new PublicKey(secondaryAuthority.trim()) : DEFAULT_PK;
       await program.methods
-        .initializeConfig(secAuthPubkey, platformFeeBps, treasuryPubkey, new BN(platformFeeLamports))
+        .initializeConfig(
+          secAuthPubkey,
+          depositPlatformFeeBps,
+          treasuryPubkey,
+          new BN(platformFeeLamports),
+          parimutuelPenaltyProtocolShareBps,
+          parimutuelWithdrawPlatformFeeBps
+        )
         .accounts({
           globalConfig: globalConfigPda,
           authority: wallet.publicKey,
@@ -157,13 +183,18 @@ export default function Platform() {
       setConfig({
             authority: wallet.publicKey.toBase58(),
             secondaryAuthority: secondaryAuthority.trim(),
-            platformFeeBps,
+            depositPlatformFeeBps,
+            parimutuelPenaltyProtocolShareBps,
+            parimutuelWithdrawPlatformFeeBps,
             platformTreasury: treasuryPubkey.toBase58(),
             platformFeeLamports,
             nextCategoryId: 0,
           });
+      toast.success('Global config initialized.');
     } catch (err: any) {
-      setUpdateError(err?.message ?? 'Transaction failed');
+      const msg = err?.message ?? 'Transaction failed';
+      setUpdateError(msg);
+      toast.error(msg);
     } finally {
       setUpdateLoading(false);
     }
@@ -186,7 +217,14 @@ export default function Platform() {
       const DEFAULT_PK = new PublicKey('11111111111111111111111111111111');
       const secAuthPubkey = secondaryAuthority.trim() ? new PublicKey(secondaryAuthority.trim()) : DEFAULT_PK;
       await program.methods
-        .updateConfig(secAuthPubkey, platformFeeBps, treasuryPubkey, new BN(platformFeeLamports))
+        .updateConfig(
+          secAuthPubkey,
+          depositPlatformFeeBps,
+          treasuryPubkey,
+          new BN(platformFeeLamports),
+          parimutuelPenaltyProtocolShareBps,
+          parimutuelWithdrawPlatformFeeBps
+        )
         .accounts({
           globalConfig: globalConfigPda,
           authority: wallet.publicKey,
@@ -197,15 +235,20 @@ export default function Platform() {
         c
           ? {
               ...c,
-              platformFeeBps,
+              depositPlatformFeeBps,
+              parimutuelPenaltyProtocolShareBps,
+              parimutuelWithdrawPlatformFeeBps,
               platformTreasury: treasuryPubkey.toBase58(),
               platformFeeLamports,
               secondaryAuthority: secondaryAuthority.trim(),
             }
           : null
       );
+      toast.success('Global config updated.');
     } catch (err: any) {
-      setUpdateError(err?.message ?? 'Transaction failed');
+      const msg = err?.message ?? 'Transaction failed';
+      setUpdateError(msg);
+      toast.error(msg);
     } finally {
       setUpdateLoading(false);
     }
@@ -304,8 +347,11 @@ export default function Platform() {
           : null
       );
       await loadCategories();
+      toast.success('Category created.');
     } catch (err: any) {
-      setCategoryActionError(err?.message ?? 'Failed to create category');
+      const msg = err?.message ?? 'Failed to create category';
+      setCategoryActionError(msg);
+      toast.error(msg);
     } finally {
       setCategoryActionLoading(false);
     }
@@ -331,8 +377,11 @@ export default function Platform() {
         draft.active
       );
       await loadCategories();
+      toast.success('Category updated.');
     } catch (err: any) {
-      setCategoryActionError(err?.message ?? 'Failed to update category');
+      const msg = err?.message ?? 'Failed to update category';
+      setCategoryActionError(msg);
+      toast.error(msg);
     } finally {
       setCategoryActionLoading(false);
     }
@@ -364,8 +413,11 @@ export default function Platform() {
         .rpc({ skipPreflight: false });
       setNewMint('');
       await loadAllowedMints();
+      toast.success('Collateral mint added to allowlist.');
     } catch (err: any) {
-      setAddMintError(err?.message ?? 'Transaction failed');
+      const msg = err?.message ?? 'Transaction failed';
+      setAddMintError(msg);
+      toast.error(msg);
     } finally {
       setAddMintLoading(false);
     }
@@ -394,8 +446,11 @@ export default function Platform() {
         })
         .rpc({ skipPreflight: false });
       await loadAllowedMints();
+      toast.success('Collateral mint removed from allowlist.');
     } catch (err: any) {
-      setRemoveMintError(err?.message ?? 'Transaction failed');
+      const msg = err?.message ?? 'Transaction failed';
+      setRemoveMintError(msg);
+      toast.error(msg);
     } finally {
       setRemovingMint(null);
     }
@@ -412,8 +467,11 @@ export default function Platform() {
       const treasury = new PublicKey(config.platformTreasury);
       const { ata, exists } = await getTreasuryAtaInfo(connection, treasury, mintPubkey);
       setAtaLookupResult({ ata: ata.toBase58(), exists });
+      toast.success('Treasury ATA lookup complete.');
     } catch (err: any) {
-      setAtaLookupError(err?.message ?? 'Lookup failed');
+      const msg = err?.message ?? 'Lookup failed';
+      setAtaLookupError(msg);
+      toast.error(msg);
     } finally {
       setAtaLookupLoading(false);
     }
@@ -431,7 +489,9 @@ export default function Platform() {
       const profile = await fetchUserProfile(connection, wallet, targetPubkey);
       setVerifyTargetProfile(profile ?? null);
     } catch (err: any) {
-      setVerifyError(err?.message ?? 'Lookup failed');
+      const msg = err?.message ?? 'Lookup failed';
+      setVerifyError(msg);
+      toast.error(msg);
     } finally {
       setVerifyTargetLoading(false);
     }
@@ -447,9 +507,13 @@ export default function Platform() {
       setVerifyTargetProfile((prev) =>
         prev && prev !== 'not-found' ? { ...prev, verified } : prev
       );
-      setVerifySuccess(verified ? 'Profile marked as verified.' : 'Verification removed.');
+      const successMsg = verified ? 'Profile marked as verified.' : 'Verification removed.';
+      setVerifySuccess(successMsg);
+      toast.success(successMsg);
     } catch (err: any) {
-      setVerifyError(err?.message ?? 'Transaction failed.');
+      const msg = err?.message ?? 'Transaction failed.';
+      setVerifyError(msg);
+      toast.error(msg);
     } finally {
       setVerifyLoading(false);
     }
@@ -499,8 +563,31 @@ export default function Platform() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-outline">Platform fee (bps)</dt>
-                  <dd>{config.platformFeeBps}</dd>
+                  <dt className="text-outline">Deposit fee — mint complete set (bps)</dt>
+                  <dd>
+                    {config.depositPlatformFeeBps}{' '}
+                    <span className="text-outline">
+                      ({formatBpsAsPercent(config.depositPlatformFeeBps)})
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-outline">Pari early-withdraw — protocol share of penalty surplus (bps)</dt>
+                  <dd>
+                    {config.parimutuelPenaltyProtocolShareBps}{' '}
+                    <span className="text-outline">
+                      ({formatBpsAsPercent(config.parimutuelPenaltyProtocolShareBps)})
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-outline">Pari withdraw — platform fee (bps of gross withdraw)</dt>
+                  <dd>
+                    {config.parimutuelWithdrawPlatformFeeBps}{' '}
+                    <span className="text-outline">
+                      ({formatBpsAsPercent(config.parimutuelWithdrawPlatformFeeBps)})
+                    </span>
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-outline">Platform treasury (wallet)</dt>
@@ -525,15 +612,63 @@ export default function Platform() {
                     <p className="mt-1 text-xs text-outline">Backup wallet that can manage the platform. Leave blank to disable.</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-on-surface">Platform fee (basis points)</label>
+                    <label className="block text-sm font-medium text-on-surface">
+                      Deposit platform fee (bps){' '}
+                      <span className="font-normal text-outline">
+                        ({formatBpsAsPercent(depositPlatformFeeBps)})
+                      </span>
+                    </label>
                     <input
                       type="number"
                       min={0}
                       max={10000}
-                      value={platformFeeBps}
-                      onChange={(e) => setPlatformFeeBps(Number(e.target.value))}
+                      value={depositPlatformFeeBps}
+                      onChange={(e) => setDepositPlatformFeeBps(Number(e.target.value))}
                       className="input mt-1"
                     />
+                    <p className="mt-1 text-xs text-outline">Applied when users mint a complete set or stake pari-mutuel (deposit collateral). Per-market override exists on the market account.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-on-surface">
+                      Pari withdraw — platform fee (bps){' '}
+                      <span className="font-normal text-outline">
+                        ({formatBpsAsPercent(parimutuelWithdrawPlatformFeeBps)})
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10000}
+                      value={parimutuelWithdrawPlatformFeeBps}
+                      onChange={(e) =>
+                        setParimutuelWithdrawPlatformFeeBps(Number(e.target.value))
+                      }
+                      className="input mt-1"
+                    />
+                    <p className="mt-1 text-xs text-outline">
+                      Basis points of the gross withdrawal amount; taken from the refund after the early-withdraw penalty (capped by refund).
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-on-surface">
+                      Pari penalty surplus — protocol share (bps){' '}
+                      <span className="font-normal text-outline">
+                        ({formatBpsAsPercent(parimutuelPenaltyProtocolShareBps)})
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10000}
+                      value={parimutuelPenaltyProtocolShareBps}
+                      onChange={(e) =>
+                        setParimutuelPenaltyProtocolShareBps(Number(e.target.value))
+                      }
+                      className="input mt-1"
+                    />
+                    <p className="mt-1 text-xs text-outline">
+                      Default split of penalty surplus after the pool keeps its slice. Creator sets the complementary share at pool init (must sum to 10000).
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-on-surface">Platform treasury (wallet address)</label>
@@ -556,7 +691,7 @@ export default function Platform() {
                       className="input mt-1"
                     />
                     <p className="mt-1 text-xs text-outline">
-                      Charged in SOL on every mint/redeem. {flatFeeLamports.toLocaleString()} lamports ≈ ~$
+                      Charged in SOL on mint, redeem, pari stake, and pari withdraw. {flatFeeLamports.toLocaleString()} lamports ≈ ~$
                       {flatFeeUsdApprox.toFixed(4)} at ${SOL_USD_REF}/SOL.
                     </p>
                   </div>
@@ -585,13 +720,54 @@ export default function Platform() {
                   <p className="mt-1 text-xs text-outline">Backup wallet with the same permissions as the primary authority.</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-on-surface">Platform fee (basis points)</label>
+                  <label className="block text-sm font-medium text-on-surface">
+                    Deposit platform fee (bps){' '}
+                    <span className="font-normal text-outline">
+                      ({formatBpsAsPercent(depositPlatformFeeBps)})
+                    </span>
+                  </label>
                   <input
                     type="number"
                     min={0}
                     max={10000}
-                    value={platformFeeBps}
-                    onChange={(e) => setPlatformFeeBps(Number(e.target.value))}
+                    value={depositPlatformFeeBps}
+                    onChange={(e) => setDepositPlatformFeeBps(Number(e.target.value))}
+                    className="input mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-on-surface">
+                    Pari penalty surplus — protocol share (bps){' '}
+                    <span className="font-normal text-outline">
+                      ({formatBpsAsPercent(parimutuelPenaltyProtocolShareBps)})
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    value={parimutuelPenaltyProtocolShareBps}
+                    onChange={(e) =>
+                      setParimutuelPenaltyProtocolShareBps(Number(e.target.value))
+                    }
+                    className="input mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-on-surface">
+                    Pari withdraw — platform fee (bps){' '}
+                    <span className="font-normal text-outline">
+                      ({formatBpsAsPercent(parimutuelWithdrawPlatformFeeBps)})
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    value={parimutuelWithdrawPlatformFeeBps}
+                    onChange={(e) =>
+                      setParimutuelWithdrawPlatformFeeBps(Number(e.target.value))
+                    }
                     className="input mt-1"
                   />
                 </div>
@@ -616,7 +792,7 @@ export default function Platform() {
                     className="input mt-1"
                   />
                   <p className="mt-1 text-xs text-outline">
-                    Charged in SOL on every mint/redeem. {flatFeeLamports.toLocaleString()} lamports ≈ ~$
+                    Charged in SOL on mint, redeem, pari stake, and pari withdraw. {flatFeeLamports.toLocaleString()} lamports ≈ ~$
                     {flatFeeUsdApprox.toFixed(4)} at ${SOL_USD_REF}/SOL.
                   </p>
                 </div>

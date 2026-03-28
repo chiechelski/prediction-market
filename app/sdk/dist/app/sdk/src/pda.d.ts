@@ -8,6 +8,10 @@ export declare const deriveAllowedMint: (programId: PublicKey, mint: PublicKey) 
 export declare const deriveMarket: (programId: PublicKey, creator: PublicKey, marketId: BN) => PublicKey;
 /** Derive the collateral vault PDA for a market. */
 export declare const deriveVault: (programId: PublicKey, market: PublicKey) => PublicKey;
+/** Parimutuel pool PDA — seeds: `["pari", market]`. */
+export declare const deriveParimutuelState: (programId: PublicKey, market: PublicKey) => PublicKey;
+/** User stake position — seeds: `["pari-pos", market, user, outcome_index]`. */
+export declare const deriveParimutuelPosition: (programId: PublicKey, market: PublicKey, user: PublicKey, outcomeIndex: number) => PublicKey;
 /** Derive the outcome mint PDA for a market and outcome index (0–7). */
 export declare const deriveOutcomeMint: (programId: PublicKey, market: PublicKey, index: number) => PublicKey;
 /** Derive all 8 outcome mint PDAs for a market. */

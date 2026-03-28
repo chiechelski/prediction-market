@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deriveMarketCategory = exports.deriveUserProfile = exports.deriveAllOutcomeTallies = exports.deriveOutcomeTally = exports.deriveResolutionVote = exports.deriveAllResolvers = exports.deriveResolver = exports.deriveAllOutcomeMints = exports.deriveOutcomeMint = exports.deriveVault = exports.deriveMarket = exports.deriveAllowedMint = exports.deriveGlobalConfig = void 0;
+exports.deriveMarketCategory = exports.deriveUserProfile = exports.deriveAllOutcomeTallies = exports.deriveOutcomeTally = exports.deriveResolutionVote = exports.deriveAllResolvers = exports.deriveResolver = exports.deriveAllOutcomeMints = exports.deriveOutcomeMint = exports.deriveParimutuelPosition = exports.deriveParimutuelState = exports.deriveVault = exports.deriveMarket = exports.deriveAllowedMint = exports.deriveGlobalConfig = void 0;
 const web3_js_1 = require("@solana/web3.js");
 /** Derive the GlobalConfig PDA. */
 const deriveGlobalConfig = (programId) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('global-config')], programId)[0];
@@ -14,6 +14,12 @@ exports.deriveMarket = deriveMarket;
 /** Derive the collateral vault PDA for a market. */
 const deriveVault = (programId, market) => web3_js_1.PublicKey.findProgramAddressSync([market.toBuffer(), Buffer.from('vault')], programId)[0];
 exports.deriveVault = deriveVault;
+/** Parimutuel pool PDA — seeds: `["pari", market]`. */
+const deriveParimutuelState = (programId, market) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('pari'), market.toBuffer()], programId)[0];
+exports.deriveParimutuelState = deriveParimutuelState;
+/** User stake position — seeds: `["pari-pos", market, user, outcome_index]`. */
+const deriveParimutuelPosition = (programId, market, user, outcomeIndex) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('pari-pos'), market.toBuffer(), user.toBuffer(), Buffer.from([outcomeIndex])], programId)[0];
+exports.deriveParimutuelPosition = deriveParimutuelPosition;
 /** Derive the outcome mint PDA for a market and outcome index (0–7). */
 const deriveOutcomeMint = (programId, market, index) => web3_js_1.PublicKey.findProgramAddressSync([market.toBuffer(), Buffer.from('outcome-mint'), Buffer.from([index])], programId)[0];
 exports.deriveOutcomeMint = deriveOutcomeMint;

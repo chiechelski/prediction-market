@@ -27,6 +27,22 @@ export const deriveMarket = (
 export const deriveVault = (programId: PublicKey, market: PublicKey): PublicKey =>
   PublicKey.findProgramAddressSync([market.toBuffer(), Buffer.from('vault')], programId)[0];
 
+/** Parimutuel pool PDA — seeds: `["pari", market]`. */
+export const deriveParimutuelState = (programId: PublicKey, market: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync([Buffer.from('pari'), market.toBuffer()], programId)[0];
+
+/** User stake position — seeds: `["pari-pos", market, user, outcome_index]`. */
+export const deriveParimutuelPosition = (
+  programId: PublicKey,
+  market: PublicKey,
+  user: PublicKey,
+  outcomeIndex: number
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('pari-pos'), market.toBuffer(), user.toBuffer(), Buffer.from([outcomeIndex])],
+    programId
+  )[0];
+
 /** Derive the outcome mint PDA for a market and outcome index (0–7). */
 export const deriveOutcomeMint = (
   programId: PublicKey,

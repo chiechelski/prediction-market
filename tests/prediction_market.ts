@@ -147,7 +147,14 @@ describe('startup', () => {
 describe('admin', () => {
   it('initializes global config', async () => {
     await program.methods
-      .initializeConfig(payer.publicKey, PLATFORM_FEE_BPS, userKeypair.publicKey, new BN(0))
+      .initializeConfig(
+        payer.publicKey,
+        PLATFORM_FEE_BPS,
+        userKeypair.publicKey,
+        new BN(0),
+        2000,
+        0
+      )
       .accounts({
         globalConfig: globalConfigPda,
         authority: payer.publicKey,
@@ -157,7 +164,14 @@ describe('admin', () => {
       .rpc({ skipPreflight: true });
 
     const cfg = await program.account.globalConfig.fetch(globalConfigPda);
-    assert.equal(cfg.platformFeeBps, PLATFORM_FEE_BPS);
+    assert.equal(cfg.depositPlatformFeeBps, PLATFORM_FEE_BPS);
+    const cfgAny = cfg as Record<string, unknown>;
+    const pp = Number(
+      cfgAny.parimutuelPenaltyProtocolShareBps ??
+        cfgAny.parimutuel_penalty_protocol_share_bps ??
+        -1
+    );
+    assert.equal(pp, 2000);
     assert.equal(cfg.platformTreasury.toBase58(), userKeypair.publicKey.toBase58());
   });
 
@@ -180,7 +194,7 @@ describe('admin', () => {
   it('updates global config fee', async () => {
     const newFee = 200;
     await program.methods
-      .updateConfig(payer.publicKey, newFee, userKeypair.publicKey, new BN(0))
+      .updateConfig(payer.publicKey, newFee, userKeypair.publicKey, new BN(0), 2000, 0)
       .accounts({
         globalConfig: globalConfigPda,
         authority: payer.publicKey,
@@ -189,11 +203,11 @@ describe('admin', () => {
       .rpc({ skipPreflight: true });
 
     const cfg = await program.account.globalConfig.fetch(globalConfigPda);
-    assert.equal(cfg.platformFeeBps, newFee);
+    assert.equal(cfg.depositPlatformFeeBps, newFee);
 
     // reset back
     await program.methods
-      .updateConfig(payer.publicKey, PLATFORM_FEE_BPS, userKeypair.publicKey, new BN(0))
+      .updateConfig(payer.publicKey, PLATFORM_FEE_BPS, userKeypair.publicKey, new BN(0), 2000, 0)
       .accounts({ globalConfig: globalConfigPda, authority: payer.publicKey, newAuthority: payer.publicKey })
       .rpc({ skipPreflight: true });
   });
@@ -226,9 +240,10 @@ describe('create market', () => {
         resolutionThreshold: 1,
         closeAt,
         creatorFeeBps: CREATOR_FEE_BPS,
-        platformFeeBps: 0,
+        depositPlatformFeeBps: 0,
         numResolvers: 1,
         title: 'Happy path market',
+        marketType: { completeSet: {} },
       })
       .accounts({
         payer: payer.publicKey,
@@ -582,9 +597,10 @@ describe('void market', () => {
         resolutionThreshold: 1,
         closeAt,
         creatorFeeBps: 0,
-        platformFeeBps: 0,
+        depositPlatformFeeBps: 0,
         numResolvers: 1,
         title: 'Void test market',
+        marketType: { completeSet: {} },
       })
       .accounts({
         payer: payer.publicKey,

@@ -7,18 +7,30 @@ use anchor_lang::prelude::*;
 pub fn handler(
     ctx: Context<InitializeConfig>,
     secondary_authority: Pubkey,
-    platform_fee_bps: u16,
+    deposit_platform_fee_bps: u16,
     platform_treasury: Pubkey,
     platform_fee_lamports: u64,
+    parimutuel_penalty_protocol_share_bps: u16,
+    parimutuel_withdraw_platform_fee_bps: u16,
 ) -> Result<()> {
-    require!(platform_fee_bps <= 10000, PredictionMarketError::InvalidFeeBps);
+    require!(deposit_platform_fee_bps <= 10000, PredictionMarketError::InvalidFeeBps);
+    require!(
+        parimutuel_penalty_protocol_share_bps <= 10000,
+        PredictionMarketError::InvalidFeeBps
+    );
+    require!(
+        parimutuel_withdraw_platform_fee_bps <= 10000,
+        PredictionMarketError::InvalidFeeBps
+    );
     let config = &mut ctx.accounts.global_config;
     config.authority = ctx.accounts.authority.key();
     config.secondary_authority = secondary_authority;
-    config.platform_fee_bps = platform_fee_bps;
+    config.deposit_platform_fee_bps = deposit_platform_fee_bps;
     config.platform_treasury = platform_treasury;
     config.platform_fee_lamports = platform_fee_lamports;
     config.next_category_id = 0;
+    config.parimutuel_penalty_protocol_share_bps = parimutuel_penalty_protocol_share_bps;
+    config.parimutuel_withdraw_platform_fee_bps = parimutuel_withdraw_platform_fee_bps;
     config._padding = [0u8; GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING];
     Ok(())
 }
@@ -28,7 +40,7 @@ pub struct InitializeConfig<'info> {
     #[account(
         init,
         payer = authority,
-        space = GLOBAL_CONFIG_ACCOUNT_SPACE,
+        space = GlobalConfig::LEN,
         seeds = [b"global-config"],
         bump,
     )]

@@ -20,6 +20,10 @@ export type RegisteredMarket = {
   label?: string;
   /** Display label for filters; local-only (mirrors on-chain category name when possible). */
   category?: string;
+  /** Optional display name for the creator (local-only). */
+  creatorDisplayName?: string;
+  /** Longer description / rules / context (local-only; shown on market info page). */
+  detailsText?: string;
   createdAt: number;
 };
 
@@ -70,4 +74,18 @@ export function getRegisteredMarket(marketPda: string): RegisteredMarket | undef
 export function removeRegisteredMarket(marketPda: string) {
   writeAll(readAll().filter((m) => m.marketPda !== marketPda));
   notifyRegistryChanged();
+}
+
+/** Merge into an existing row; no-op if the market is not in the registry. */
+export function patchRegisteredMarket(
+  marketPda: string,
+  patch: Partial<Omit<RegisteredMarket, 'marketPda' | 'createdAt'>>
+): boolean {
+  const all = readAll();
+  const idx = all.findIndex((m) => m.marketPda === marketPda);
+  if (idx < 0) return false;
+  all[idx] = { ...all[idx], ...patch };
+  writeAll(all);
+  notifyRegistryChanged();
+  return true;
 }

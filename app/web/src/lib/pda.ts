@@ -141,3 +141,32 @@ export function deriveMarketCategory(
   );
   return pda;
 }
+
+export function deriveParimutuelState(
+  programId: PublicKey,
+  market: PublicKey
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('pari'), market.toBuffer()],
+    programId
+  );
+  return pda;
+}
+
+export function deriveParimutuelPosition(
+  programId: PublicKey,
+  market: PublicKey,
+  user: PublicKey,
+  outcomeIndex: number
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('pari-pos'),
+      market.toBuffer(),
+      user.toBuffer(),
+      Buffer.from([outcomeIndex]),
+    ],
+    programId
+  );
+  return pda;
+}

@@ -2,14 +2,10 @@
 
 use anchor_lang::prelude::*;
 
+pub const MARKET_CATEGORY_ACCOUNT_SPACE_PADDING: usize = 96;
+
 /// Max UTF-8 bytes for [`MarketCategory::name`].
 pub const MAX_MARKET_CATEGORY_NAME_LEN: usize = 64;
-
-/// Reserved tail on `MarketCategory` for future fields without `realloc`.
-pub const MARKET_CATEGORY_ACCOUNT_SPACE_PADDING: usize = 64;
-
-/// `8` discriminator + `InitSpace` body (includes `_padding`).
-pub const MARKET_CATEGORY_ACCOUNT_SPACE: usize = 8 + MarketCategory::INIT_SPACE;
 
 /// On-chain category label; PDA seeds: `["market-category", id.to_le_bytes()]`.
 #[account]
@@ -25,8 +21,8 @@ pub struct MarketCategory {
 }
 
 impl MarketCategory {
-    /// Alias for `init` / `realloc` — same as [`MARKET_CATEGORY_ACCOUNT_SPACE`].
-    pub const LEN: usize = MARKET_CATEGORY_ACCOUNT_SPACE;
+    /// `8` (discriminator) + `InitSpace` body (includes `_padding`).
+    pub const LEN: usize = 8 + MarketCategory::INIT_SPACE;
 }
 
 #[cfg(test)]
@@ -34,7 +30,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn market_category_account_space_matches_layout() {
+    fn market_category_account_space_matches_init_space() {
         let cat = MarketCategory {
             id: 0,
             name: "a".repeat(MAX_MARKET_CATEGORY_NAME_LEN),
@@ -45,8 +41,8 @@ mod tests {
         let body = cat.try_to_vec().expect("serialize");
         assert_eq!(
             8 + body.len(),
-            MARKET_CATEGORY_ACCOUNT_SPACE,
-            "discriminator + borsh body must equal MARKET_CATEGORY_ACCOUNT_SPACE"
+            MarketCategory::LEN,
+            "discriminator + borsh body must equal MarketCategory::LEN"
         );
     }
 }

@@ -111,7 +111,7 @@ async function createFullMarket(
     numResolvers?: number;
     resolverPubkeys?: PublicKey[];
     creatorFeeBps?: number;
-    platformFeeBps?: number;
+    depositPlatformFeeBps?: number;
     closeAtOffset?: number;
     title?: string;
     marketCategory?: PublicKey | null;
@@ -133,9 +133,10 @@ async function createFullMarket(
       resolutionThreshold: opts?.resolutionThreshold ?? 1,
       closeAt,
       creatorFeeBps: opts?.creatorFeeBps ?? 50,
-      platformFeeBps: opts?.platformFeeBps ?? 0,
+      depositPlatformFeeBps: opts?.depositPlatformFeeBps ?? 0,
       numResolvers,
       title: opts?.title ?? 'Test market',
+      marketType: { completeSet: {} },
     })
     .accounts({
       payer: payer.publicKey, market: marketPda, vault: vaultPda,
@@ -338,9 +339,10 @@ describe('edge-cases: admin', () => {
           resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
           creatorFeeBps: 0,
-          platformFeeBps: 0,
+          depositPlatformFeeBps: 0,
           numResolvers: 1,
           title: 'Test market',
+          marketType: { completeSet: {} },
         })
         .accounts({
           payer: payer.publicKey,
@@ -397,9 +399,10 @@ describe('edge-cases: token-2022 collateral', () => {
         resolutionThreshold: 1,
         closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
         creatorFeeBps: 0,
-        platformFeeBps: 0,
+        depositPlatformFeeBps: 0,
         numResolvers: 1,
         title: 'Test market',
+        marketType: { completeSet: {} },
       })
       .accounts({
         payer: payer.publicKey,
@@ -439,8 +442,9 @@ describe('edge-cases: create market', () => {
         .createMarket({
           marketId, outcomeCount: 2, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
-          creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 1,
+          creatorFeeBps: 0, depositPlatformFeeBps: 0, numResolvers: 1,
           title: 'Test market',
+          marketType: { completeSet: {} },
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -465,8 +469,9 @@ describe('edge-cases: create market', () => {
         .createMarket({
           marketId, outcomeCount: 2, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) - 60),
-          creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 1,
+          creatorFeeBps: 0, depositPlatformFeeBps: 0, numResolvers: 1,
           title: 'Test market',
+          marketType: { completeSet: {} },
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -491,8 +496,9 @@ describe('edge-cases: create market', () => {
         .createMarket({
           marketId, outcomeCount: 1, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
-          creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 1,
+          creatorFeeBps: 0, depositPlatformFeeBps: 0, numResolvers: 1,
           title: 'Test market',
+          marketType: { completeSet: {} },
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -517,8 +523,9 @@ describe('edge-cases: create market', () => {
         .createMarket({
           marketId, outcomeCount: 2, resolutionThreshold: 1,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
-          creatorFeeBps: 5001, platformFeeBps: 5001, numResolvers: 1,
+          creatorFeeBps: 5001, depositPlatformFeeBps: 5001, numResolvers: 1,
           title: 'Test market',
+          marketType: { completeSet: {} },
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,
@@ -543,8 +550,9 @@ describe('edge-cases: create market', () => {
         .createMarket({
           marketId, outcomeCount: 2, resolutionThreshold: 3,
           closeAt: new BN(Math.floor(Date.now() / 1000) + 3600),
-          creatorFeeBps: 0, platformFeeBps: 0, numResolvers: 2,
+          creatorFeeBps: 0, depositPlatformFeeBps: 0, numResolvers: 2,
           title: 'Test market',
+          marketType: { completeSet: {} },
         })
         .accounts({
           payer: payer.publicKey, market: marketPda,

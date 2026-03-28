@@ -37,7 +37,14 @@ const program = anchor.workspace.PredictionMarket as Program<PredictionMarket>;
 const client = new PredictionMarketClient(program);
 
 // Admin
-await client.initializeConfig(100, platformTreasuryPubkey);
+await client.initializeConfig({
+  secondaryAuthority: secondaryAuthorityPubkey,
+  depositPlatformFeeBps: 100,
+  platformTreasuryWallet: platformTreasuryPubkey,
+  platformFeeLamports: new BN(0),
+  parimutuelPenaltyProtocolShareBps: 2000,
+  parimutuelWithdrawPlatformFeeBps: 0,
+});
 await client.addAllowedCollateralMint(collateralMintPubkey);
 
 // Create market (3 steps)
@@ -51,7 +58,7 @@ const { marketPda } = await client.createMarket(
     resolutionThreshold: 1,
     closeAt: new BN(Math.floor(Date.now() / 1000) + 86400),
     creatorFeeBps: 50,
-    platformFeeBps: 0,
+    depositPlatformFeeBps: 0,
     numResolvers: 1,
     title: 'Will it rain?',
     category: 1,

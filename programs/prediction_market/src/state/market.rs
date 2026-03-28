@@ -2,6 +2,11 @@
 
 use anchor_lang::prelude::*;
 
+use crate::fees::{effective_deposit_platform_fee_bps, fee_amount_floor};
+
+use super::market_type::MarketType;
+pub const MARKET_ACCOUNT_SPACE_PADDING: usize = 64;
+
 pub const MAX_MARKET_TITLE_LEN: usize = 128;
 
 #[account]
@@ -19,14 +24,16 @@ pub struct Market {
     pub creator: Pubkey,
     pub creator_fee_bps: u16,
     pub creator_fee_account: Pubkey,
-    /// 0 = use global config default
-    pub platform_fee_bps: u16,
+    /// 0 = use global `deposit_platform_fee_bps` — platform fee on **mint complete set** and **pari stake**.
+    pub deposit_platform_fee_bps: u16,
     pub bump: u8,
     /// UTF-8 title shown in UIs (max 128 bytes).
     #[max_len(MAX_MARKET_TITLE_LEN)]
     pub title: String,
     /// `MarketCategory` PDA, or `Pubkey::default()` for uncategorized.
     pub category: Pubkey,
+    pub market_type: MarketType,
+    pub _padding: [u8; MARKET_ACCOUNT_SPACE_PADDING],
 }
 
 impl Market {
@@ -41,32 +48,22 @@ impl Market {
         self.resolved_outcome_index.is_some()
     }
 
-    pub fn platform_fee_bps_effective(&self, global_bps: u16) -> u16 {
-        if self.platform_fee_bps > 0 {
-            self.platform_fee_bps
-        } else {
-            global_bps
-        }
+    pub fn deposit_platform_fee_bps_effective(&self, global_bps: u16) -> u16 {
+        effective_deposit_platform_fee_bps(self.deposit_platform_fee_bps, global_bps)
     }
 
     pub fn validate_fees(&self, global_bps: u16) -> bool {
-        let platform = self.platform_fee_bps_effective(global_bps);
+        let platform = self.deposit_platform_fee_bps_effective(global_bps);
         platform + self.creator_fee_bps <= 10000
     }
 
-    pub fn calculate_platform_fee(&self, amount: u64, global_bps: u16) -> u64 {
-        let bps = self.platform_fee_bps_effective(global_bps);
-        if bps > 10000 {
-            return 0;
-        }
-        (amount as u128 * bps as u128 / 10000) as u64
+    pub fn calculate_deposit_platform_fee(&self, amount: u64, global_bps: u16) -> u64 {
+        let bps = self.deposit_platform_fee_bps_effective(global_bps);
+        fee_amount_floor(amount, bps)
     }
 
     pub fn calculate_creator_fee(&self, amount: u64) -> u64 {
-        if self.creator_fee_bps > 10000 {
-            return 0;
-        }
-        (amount as u128 * self.creator_fee_bps as u128 / 10000) as u64
+        fee_amount_floor(amount, self.creator_fee_bps)
     }
 }
 
@@ -89,10 +86,12 @@ mod tests {
             creator: Pubkey::new_unique(),
             creator_fee_bps: 0,
             creator_fee_account: Pubkey::new_unique(),
-            platform_fee_bps: 0,
+            deposit_platform_fee_bps: 0,
             bump: 255,
             title: "a".repeat(MAX_MARKET_TITLE_LEN),
             category: Pubkey::new_unique(),
+            market_type: MarketType::CompleteSet,
+            _padding: [0u8; MARKET_ACCOUNT_SPACE_PADDING],
         };
         let body = m.try_to_vec().expect("serialize");
         assert_eq!(8 + body.len(), Market::LEN);

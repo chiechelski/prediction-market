@@ -626,7 +626,7 @@
           "type": "pubkey"
         },
         {
-          "name": "platform_fee_bps",
+          "name": "deposit_platform_fee_bps",
           "type": "u16"
         },
         {
@@ -636,6 +636,14 @@
         {
           "name": "platform_fee_lamports",
           "type": "u64"
+        },
+        {
+          "name": "parimutuel_penalty_protocol_share_bps",
+          "type": "u16"
+        },
+        {
+          "name": "parimutuel_withdraw_platform_fee_bps",
+          "type": "u16"
         }
       ]
     },
@@ -830,6 +838,113 @@
       ]
     },
     {
+      "name": "initialize_parimutuel_state",
+      "discriminator": [
+        73,
+        2,
+        25,
+        61,
+        222,
+        225,
+        184,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "parimutuel_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  105
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeParimutuelStateArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "mint_complete_set",
       "discriminator": [
         70,
@@ -993,6 +1108,473 @@
           "type": {
             "defined": {
               "name": "MintCompleteSetArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "parimutuel_claim",
+      "discriminator": [
+        14,
+        77,
+        244,
+        0,
+        58,
+        48,
+        251,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "parimutuel_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  105
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "user_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ParimutuelClaimArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "parimutuel_stake",
+      "discriminator": [
+        163,
+        203,
+        81,
+        169,
+        132,
+        9,
+        117,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "parimutuel_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  105
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "user_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_account",
+          "writable": true
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "platform_treasury_wallet",
+          "writable": true
+        },
+        {
+          "name": "platform_treasury_ata",
+          "writable": true
+        },
+        {
+          "name": "allowed_mint",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  108,
+                  108,
+                  111,
+                  119,
+                  101,
+                  100,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "collateral_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ParimutuelStakeArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "parimutuel_withdraw",
+      "discriminator": [
+        189,
+        252,
+        247,
+        233,
+        149,
+        69,
+        178,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_fee_account",
+          "writable": true
+        },
+        {
+          "name": "parimutuel_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  105
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "user_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "platform_treasury_wallet",
+          "writable": true
+        },
+        {
+          "name": "platform_treasury_ata",
+          "writable": true
+        },
+        {
+          "name": "collateral_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ParimutuelWithdrawArgs"
             }
           }
         }
@@ -1550,7 +2132,7 @@
           "type": "pubkey"
         },
         {
-          "name": "platform_fee_bps",
+          "name": "deposit_platform_fee_bps",
           "type": "u16"
         },
         {
@@ -1560,6 +2142,14 @@
         {
           "name": "platform_fee_lamports",
           "type": "u64"
+        },
+        {
+          "name": "parimutuel_penalty_protocol_share_bps",
+          "type": "u16"
+        },
+        {
+          "name": "parimutuel_withdraw_platform_fee_bps",
+          "type": "u16"
         }
       ]
     },
@@ -2052,6 +2642,32 @@
       ]
     },
     {
+      "name": "ParimutuelPosition",
+      "discriminator": [
+        10,
+        84,
+        157,
+        190,
+        166,
+        250,
+        7,
+        202
+      ]
+    },
+    {
+      "name": "ParimutuelState",
+      "discriminator": [
+        110,
+        252,
+        55,
+        224,
+        143,
+        64,
+        218,
+        185
+      ]
+    },
+    {
       "name": "ResolutionVote",
       "discriminator": [
         162,
@@ -2241,6 +2857,36 @@
       "code": 6029,
       "name": "InvalidCategoryId",
       "msg": "category_id must match global_config.next_category_id"
+    },
+    {
+      "code": 6030,
+      "name": "WrongMarketType",
+      "msg": "This instruction requires a different market type"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidParimutuelPenalty",
+      "msg": "Parimutuel penalty or split parameters are invalid"
+    },
+    {
+      "code": 6032,
+      "name": "ParimutuelNotInitialized",
+      "msg": "Parimutuel state not initialized for this market"
+    },
+    {
+      "code": 6033,
+      "name": "ParimutuelInsufficientStake",
+      "msg": "Stake or withdrawal amount exceeds balance"
+    },
+    {
+      "code": 6034,
+      "name": "ParimutuelEmptyWinningPool",
+      "msg": "Winning outcome pool is empty — cannot claim"
+    },
+    {
+      "code": 6035,
+      "name": "ParimutuelAlreadyClaimed",
+      "msg": "Position already claimed"
     }
   ],
   "types": [
@@ -2309,7 +2955,10 @@
             "type": "u16"
           },
           {
-            "name": "platform_fee_bps",
+            "name": "deposit_platform_fee_bps",
+            "docs": [
+              "0 = use global default — platform fee on **mint complete set** (deposit collateral)."
+            ],
             "type": "u16"
           },
           {
@@ -2325,6 +2974,17 @@
               "UTF-8 market title (1–128 bytes after trim)."
             ],
             "type": "string"
+          },
+          {
+            "name": "market_type",
+            "docs": [
+              "[`MarketType::CompleteSet`] (SPL outcomes) or [`MarketType::Parimutuel`] (ledger pool)."
+            ],
+            "type": {
+              "defined": {
+                "name": "MarketType"
+              }
+            }
           }
         ]
       }
@@ -2362,7 +3022,11 @@
             "type": "pubkey"
           },
           {
-            "name": "platform_fee_bps",
+            "name": "deposit_platform_fee_bps",
+            "docs": [
+              "Default platform fee on **complete-set mint** and **pari-mutuel stake** (deposit collateral):",
+              "basis points of `amount`. Per-market override: `Market::deposit_platform_fee_bps` or `0` to use this."
+            ],
             "type": "u16"
           },
           {
@@ -2375,7 +3039,7 @@
           {
             "name": "platform_fee_lamports",
             "docs": [
-              "Flat SOL fee (lamports) per user mint / redeem."
+              "Flat SOL fee (lamports) per user mint, redeem, pari stake, and pari withdraw."
             ],
             "type": "u64"
           },
@@ -2387,11 +3051,28 @@
             "type": "u64"
           },
           {
+            "name": "parimutuel_penalty_protocol_share_bps",
+            "docs": [
+              "Default **protocol** share of the **penalty surplus** on pari-mutuel early withdraw (after the",
+              "pool keeps its slice). The creator chooses the complementary share at `initialize_parimutuel_state`;",
+              "the two must sum to 10000 bps. Stored in `ParimutuelState` at pool init."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "parimutuel_withdraw_platform_fee_bps",
+            "docs": [
+              "Platform fee on **pari-mutuel early withdraw**: basis points of **gross** `amount` (withdrawal size).",
+              "Taken from the post-penalty **refund** slice (capped so the user never receives less than zero)."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "_padding",
             "type": {
               "array": [
                 "u8",
-                56
+                52
               ]
             }
           }
@@ -2443,6 +3124,43 @@
           {
             "name": "num_resolvers",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeParimutuelStateArgs",
+      "docs": [
+        "Second step for pari-mutuel markets: creates [`ParimutuelState`] (pools + penalty params)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "early_withdraw_penalty_bps",
+            "docs": [
+              "Basis points of the withdrawn amount withheld as penalty."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "penalty_kept_in_pool_bps",
+            "docs": [
+              "Of the withheld penalty, bps that stay in the outcome pool; surplus is split protocol/creator."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "penalty_surplus_creator_share_bps",
+            "docs": [
+              "Share of penalty surplus to creator — must sum with",
+              "`global_config.parimutuel_penalty_protocol_share_bps` to 10000."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -2503,9 +3221,9 @@
             "type": "pubkey"
           },
           {
-            "name": "platform_fee_bps",
+            "name": "deposit_platform_fee_bps",
             "docs": [
-              "0 = use global config default"
+              "0 = use global `deposit_platform_fee_bps` — platform fee on **mint complete set** and **pari stake**."
             ],
             "type": "u16"
           },
@@ -2526,12 +3244,23 @@
               "`MarketCategory` PDA, or `Pubkey::default()` for uncategorized."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "market_type",
+            "type": {
+              "defined": {
+                "name": "MarketType"
+              }
+            }
           }
         ]
       }
     },
     {
       "name": "MarketCategory",
+      "docs": [
+        "On-chain category label; PDA seeds: `[\"market-category\", id.to_le_bytes()]`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2553,6 +3282,35 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketType",
+      "docs": [
+        "How participation and settlement work for this market."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "CompleteSet"
+          },
+          {
+            "name": "Parimutuel"
           }
         ]
       }
@@ -2594,6 +3352,209 @@
                 40
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParimutuelClaimArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "outcome_index",
+            "docs": [
+              "Must equal the resolved winning outcome index."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParimutuelPosition",
+      "docs": [
+        "PDA seeds: `[b\"pari-pos\", market.key(), user.key(), &[outcome_index]]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome_index",
+            "type": "u8"
+          },
+          {
+            "name": "active_stake",
+            "type": "u64"
+          },
+          {
+            "name": "total_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "total_withdrawn",
+            "type": "u64"
+          },
+          {
+            "name": "claimed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParimutuelStakeArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "outcome_index",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParimutuelState",
+      "docs": [
+        "PDA seeds: `[b\"pari\", market.key()]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_pool",
+            "docs": [
+              "Sum of `outcome_pools` (must stay in sync)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "outcome_pools",
+            "docs": [
+              "Collateral per outcome bucket; index `i < outcome_count` is used."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          },
+          {
+            "name": "early_withdraw_penalty_bps",
+            "docs": [
+              "Basis points of the **withdrawn amount** withheld as penalty (before refund). Example: 500 = 5%."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "penalty_kept_in_pool_bps",
+            "docs": [
+              "Of that withheld penalty, basis points (of 10000) that **remain in the same outcome pool**.",
+              "The rest is **penalty surplus** split between protocol and creator per the two fields below."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "penalty_surplus_protocol_share_bps",
+            "docs": [
+              "Snapshot at pool init: share of **penalty surplus** (after pool keeps its slice) to protocol."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "penalty_surplus_creator_share_bps",
+            "docs": [
+              "Snapshot at pool init: share of penalty surplus to the market creator (`creator_fee_account`).",
+              "Must satisfy `penalty_surplus_protocol_share_bps + penalty_surplus_creator_share_bps == 10000`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "resolved_total_pool",
+            "docs": [
+              "Snapshot at first claim after resolution (lazy); frozen payout math."
+            ],
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "resolved_winning_outcome_pool",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParimutuelWithdrawArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "outcome_index",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }

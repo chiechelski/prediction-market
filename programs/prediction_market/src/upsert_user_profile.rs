@@ -1,7 +1,7 @@
 #![allow(clippy::result_large_err)]
 
 use crate::errors::PredictionMarketError;
-use crate::state::user_profile::{UserProfile, USER_PROFILE_SPACE, MAX_DISPLAY_NAME_LEN, MAX_URL_LEN};
+use crate::state::user_profile::{UserProfile, MAX_DISPLAY_NAME_LEN, MAX_URL_LEN};
 use anchor_lang::prelude::*;
 
 pub fn handler(
@@ -34,7 +34,7 @@ pub struct UpsertUserProfile<'info> {
     #[account(
         init_if_needed,
         payer = wallet,
-        space = USER_PROFILE_SPACE,
+        space = UserProfile::LEN,
         seeds = [b"user-profile", wallet.key().as_ref()],
         bump,
     )]

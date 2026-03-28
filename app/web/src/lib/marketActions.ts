@@ -21,6 +21,8 @@ import {
   deriveOutcomeTally,
   deriveResolutionVote,
   deriveUserProfile,
+  deriveParimutuelState,
+  deriveParimutuelPosition,
 } from '@/lib/pda';
 import { assertSolBalanceForPayer } from '@/lib/solBalance';
 import {
@@ -126,13 +128,15 @@ export async function createMarketFullFlow(
     resolutionThreshold: number;
     closeAt: BN;
     creatorFeeBps: number;
-    platformFeeBps: number;
+    depositPlatformFeeBps: number;
     collateralMint: PublicKey;
     /** First resolver is usually the connected wallet; length must equal numResolvers */
     resolverPubkeys: PublicKey[];
     title: string;
     /** Omit or `null` for uncategorized (`Pubkey::default()` on-chain). */
     marketCategory: PublicKey | null;
+    /** Default complete-set (SPL outcomes). Pari-mutuel skips outcome mint init. */
+    marketType?: 'completeSet' | 'parimutuel';
   }
 ): Promise<{ marketPda: PublicKey; vault: PublicKey }> {
   const program = await getProgram(connection, wallet);
@@ -169,6 +173,11 @@ export async function createMarketFullFlow(
     collateralTokenProgram
   );
 
+  const marketTypeArg =
+    params.marketType === 'parimutuel'
+      ? { parimutuel: {} }
+      : { completeSet: {} };
+
   await program.methods
     .createMarket({
       marketId: params.marketId,
@@ -176,9 +185,10 @@ export async function createMarketFullFlow(
       resolutionThreshold: params.resolutionThreshold,
       closeAt: params.closeAt,
       creatorFeeBps: params.creatorFeeBps,
-      platformFeeBps: params.platformFeeBps,
+      depositPlatformFeeBps: params.depositPlatformFeeBps,
       numResolvers,
       title: params.title,
+      marketType: marketTypeArg,
     })
     .accounts({
       payer: creator,
@@ -217,21 +227,42 @@ export async function createMarketFullFlow(
     })
     .rpc();
 
-  const outcomeMints = deriveAllOutcomeMints(program.programId, marketPda);
+  if (params.marketType === 'parimutuel') {
+    const parimutuelState = deriveParimutuelState(program.programId, marketPda);
+    const gc = await (program.account as any).globalConfig.fetch(globalConfig);
+    const protocolBps = gc.parimutuelPenaltyProtocolShareBps as number;
+    await program.methods
+      .initializeParimutuelState({
+        marketId: params.marketId,
+        earlyWithdrawPenaltyBps: 500,
+        penaltyKeptInPoolBps: 8000,
+        penaltySurplusCreatorShareBps: 10000 - protocolBps,
+      })
+      .accounts({
+        payer: creator,
+        market: marketPda,
+        globalConfig,
+        parimutuelState,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  } else {
+    const outcomeMints = deriveAllOutcomeMints(program.programId, marketPda);
 
-  await program.methods
-    .initializeMarketMints({ marketId: params.marketId })
-    .accounts({
-      payer: creator,
-      market: marketPda,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-      outcomeMint0: outcomeMints[0], outcomeMint1: outcomeMints[1],
-      outcomeMint2: outcomeMints[2], outcomeMint3: outcomeMints[3],
-      outcomeMint4: outcomeMints[4], outcomeMint5: outcomeMints[5],
-      outcomeMint6: outcomeMints[6], outcomeMint7: outcomeMints[7],
-    })
-    .rpc();
+    await program.methods
+      .initializeMarketMints({ marketId: params.marketId })
+      .accounts({
+        payer: creator,
+        market: marketPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        outcomeMint0: outcomeMints[0], outcomeMint1: outcomeMints[1],
+        outcomeMint2: outcomeMints[2], outcomeMint3: outcomeMints[3],
+        outcomeMint4: outcomeMints[4], outcomeMint5: outcomeMints[5],
+        outcomeMint6: outcomeMints[6], outcomeMint7: outcomeMints[7],
+      })
+      .rpc();
+  }
 
   return { marketPda, vault: vaultPda };
 }
@@ -677,16 +708,24 @@ export interface UserProfileData {
   verified: boolean;
 }
 
+const READ_ONLY_WALLET = {
+  publicKey: DEFAULT_PUBKEY,
+  signTransaction: async (t: unknown) => t,
+  signAllTransactions: async (ts: unknown) => ts,
+};
+
 /**
- * Fetch an on-chain UserProfile for any wallet.
- * Returns null when the account does not exist (profile not yet created).
+ * Fetch UserProfile via RPC only (no connected wallet required).
  */
-export async function fetchUserProfile(
+export async function fetchUserProfileReadOnly(
   connection: Connection,
-  wallet: WalletContextState,
   targetWallet: PublicKey
 ): Promise<UserProfileData | null> {
-  const program = await getProgram(connection, wallet);
+  const idl = await fetchIdl();
+  const provider = new AnchorProvider(connection, READ_ONLY_WALLET as any, {
+    commitment: 'confirmed',
+  });
+  const program = new Program(idl, provider);
   const profilePda = deriveUserProfile(program.programId, targetWallet);
   try {
     const account = await (program.account as any).userProfile.fetch(profilePda);
@@ -698,6 +737,232 @@ export async function fetchUserProfile(
   } catch {
     return null;
   }
+}
+
+/**
+ * Fetch an on-chain UserProfile for any wallet.
+ * Returns null when the account does not exist (profile not yet created).
+ */
+export async function fetchUserProfile(
+  connection: Connection,
+  _wallet: WalletContextState,
+  targetWallet: PublicKey
+): Promise<UserProfileData | null> {
+  return fetchUserProfileReadOnly(connection, targetWallet);
+}
+
+/** Whether fetched market account is pari-mutuel (ledger pool). */
+export function isParimutuelMarket(market: { marketType?: unknown }): boolean {
+  const t = market.marketType as { parimutuel?: unknown } | undefined;
+  return t != null && typeof t === 'object' && 'parimutuel' in t;
+}
+
+export async function parimutuelStakeTx(
+  connection: Connection,
+  wallet: WalletContextState,
+  marketPda: PublicKey,
+  marketId: BN,
+  collateralMint: PublicKey,
+  outcomeIndex: number,
+  amount: BN
+): Promise<void> {
+  const program = await getProgram(connection, wallet);
+  if (!wallet.publicKey) throw new Error('Wallet required');
+  const collateralTokenProgram = await getMintTokenProgram(
+    connection,
+    collateralMint
+  );
+  const userCollateral = ataAddress(
+    collateralMint,
+    wallet.publicKey,
+    collateralTokenProgram
+  );
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    wallet.publicKey,
+    collateralTokenProgram
+  );
+  const parimutuelState = deriveParimutuelState(program.programId, marketPda);
+  const position = deriveParimutuelPosition(
+    program.programId,
+    marketPda,
+    wallet.publicKey,
+    outcomeIndex
+  );
+  const vaultPda = deriveVault(program.programId, marketPda);
+  const allowedMint = deriveAllowedMint(program.programId, collateralMint);
+  const globalConfigPda = deriveGlobalConfig(program.programId);
+  const globalConfig = await (program.account as any).globalConfig.fetch(
+    globalConfigPda
+  );
+  const treasuryWallet = globalConfig.platformTreasury as PublicKey;
+  const platformTreasuryAta = ataAddress(
+    collateralMint,
+    treasuryWallet,
+    collateralTokenProgram
+  );
+  const marketAcc = await (program.account as any).market.fetch(marketPda);
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    treasuryWallet,
+    collateralTokenProgram
+  );
+
+  await program.methods
+    .parimutuelStake({
+      marketId,
+      outcomeIndex,
+      amount,
+    })
+    .accounts({
+      user: wallet.publicKey,
+      market: marketPda,
+      parimutuelState,
+      position,
+      vault: vaultPda,
+      collateralMint,
+      userCollateralAccount: userCollateral,
+      creatorFeeAccount: marketAcc.creatorFeeAccount,
+      globalConfig: globalConfigPda,
+      platformTreasuryWallet: treasuryWallet,
+      platformTreasuryAta,
+      allowedMint,
+      collateralTokenProgram,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+export async function parimutuelWithdrawTx(
+  connection: Connection,
+  wallet: WalletContextState,
+  marketPda: PublicKey,
+  marketId: BN,
+  collateralMint: PublicKey,
+  outcomeIndex: number,
+  amount: BN
+): Promise<void> {
+  const program = await getProgram(connection, wallet);
+  if (!wallet.publicKey) throw new Error('Wallet required');
+  const collateralTokenProgram = await getMintTokenProgram(
+    connection,
+    collateralMint
+  );
+  const userCollateral = ataAddress(
+    collateralMint,
+    wallet.publicKey,
+    collateralTokenProgram
+  );
+  const globalConfigPda = deriveGlobalConfig(program.programId);
+  const globalConfig = await (program.account as any).globalConfig.fetch(
+    globalConfigPda
+  );
+  const treasuryWallet = globalConfig.platformTreasury as PublicKey;
+  const platformTreasuryAta = ataAddress(
+    collateralMint,
+    treasuryWallet,
+    collateralTokenProgram
+  );
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    treasuryWallet,
+    collateralTokenProgram
+  );
+
+  const parimutuelState = deriveParimutuelState(program.programId, marketPda);
+  const position = deriveParimutuelPosition(
+    program.programId,
+    marketPda,
+    wallet.publicKey,
+    outcomeIndex
+  );
+  const vaultPda = deriveVault(program.programId, marketPda);
+  const marketAcc = await (program.account as any).market.fetch(marketPda);
+
+  await program.methods
+    .parimutuelWithdraw({
+      marketId,
+      outcomeIndex,
+      amount,
+    })
+    .accounts({
+      user: wallet.publicKey,
+      market: marketPda,
+      creatorFeeAccount: marketAcc.creatorFeeAccount,
+      parimutuelState,
+      position,
+      vault: vaultPda,
+      collateralMint,
+      userCollateralAccount: userCollateral,
+      globalConfig: globalConfigPda,
+      platformTreasuryWallet: treasuryWallet,
+      platformTreasuryAta,
+      collateralTokenProgram,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+export async function parimutuelClaimTx(
+  connection: Connection,
+  wallet: WalletContextState,
+  marketPda: PublicKey,
+  marketId: BN,
+  collateralMint: PublicKey,
+  outcomeIndex: number
+): Promise<void> {
+  const program = await getProgram(connection, wallet);
+  if (!wallet.publicKey) throw new Error('Wallet required');
+  const collateralTokenProgram = await getMintTokenProgram(
+    connection,
+    collateralMint
+  );
+  const userCollateral = ataAddress(
+    collateralMint,
+    wallet.publicKey,
+    collateralTokenProgram
+  );
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    wallet.publicKey,
+    collateralTokenProgram
+  );
+  const parimutuelState = deriveParimutuelState(program.programId, marketPda);
+  const position = deriveParimutuelPosition(
+    program.programId,
+    marketPda,
+    wallet.publicKey,
+    outcomeIndex
+  );
+  const vaultPda = deriveVault(program.programId, marketPda);
+
+  await program.methods
+    .parimutuelClaim({
+      marketId,
+      outcomeIndex,
+    })
+    .accounts({
+      user: wallet.publicKey,
+      market: marketPda,
+      parimutuelState,
+      position,
+      vault: vaultPda,
+      collateralMint,
+      userCollateralAccount: userCollateral,
+      collateralTokenProgram,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
 }
 
 /**

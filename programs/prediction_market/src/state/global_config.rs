@@ -2,37 +2,36 @@
 
 use anchor_lang::prelude::*;
 
-/// Reserved tail on `GlobalConfig` for future fields without `realloc`.
-pub const GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING: usize = 56;
-
-/// `8` discriminator + serialized fields + padding (see `GlobalConfig`).
-pub const GLOBAL_CONFIG_ACCOUNT_SPACE: usize = 8 // discriminator
-    + 32  // authority (Pubkey)
-    + 32  // secondary_authority (Pubkey)
-    + 2   // platform_fee_bps (u16)
-    + 32  // platform_treasury (Pubkey)
-    + 8   // platform_fee_lamports (u64)
-    + 8   // next_category_id (u64)
-    + GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING;
+pub const GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING: usize = 64;
 
 #[account]
+#[derive(InitSpace)]
 pub struct GlobalConfig {
     pub authority: Pubkey,
     /// Backup authority — same permissions as `authority`. `Pubkey::default()` disables.
     pub secondary_authority: Pubkey,
-    pub platform_fee_bps: u16,
+    /// Default platform fee on **complete-set mint** and **pari-mutuel stake** (deposit collateral):
+    /// basis points of `amount`. Per-market override: `Market::deposit_platform_fee_bps` or `0` to use this.
+    pub deposit_platform_fee_bps: u16,
     /// Wallet that receives platform token fees (ATA derived per collateral mint).
     pub platform_treasury: Pubkey,
-    /// Flat SOL fee (lamports) per user mint / redeem.
+    /// Flat SOL fee (lamports) per user mint, redeem, pari stake, and pari withdraw.
     pub platform_fee_lamports: u64,
     /// Next id for `MarketCategory` PDAs (`[b"market-category", id.to_le_bytes()]`).
     pub next_category_id: u64,
+    /// Default **protocol** share of the **penalty surplus** on pari-mutuel early withdraw (after the
+    /// pool keeps its slice). The creator chooses the complementary share at `initialize_parimutuel_state`;
+    /// the two must sum to 10000 bps. Stored in `ParimutuelState` at pool init.
+    pub parimutuel_penalty_protocol_share_bps: u16,
+    /// Platform fee on **pari-mutuel early withdraw**: basis points of **gross** `amount` (withdrawal size).
+    /// Taken from the post-penalty **refund** slice (capped so the user never receives less than zero).
+    pub parimutuel_withdraw_platform_fee_bps: u16,
     pub _padding: [u8; GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING],
 }
 
 impl GlobalConfig {
-    /// Alias for `init` / `realloc` — same as [`GLOBAL_CONFIG_ACCOUNT_SPACE`].
-    pub const LEN: usize = GLOBAL_CONFIG_ACCOUNT_SPACE;
+    /// `8` (discriminator) + `InitSpace` body (includes `_padding`).
+    pub const LEN: usize = 8 + GlobalConfig::INIT_SPACE;
 
     pub fn is_allowed_authority(&self, key: Pubkey) -> bool {
         self.authority == key
@@ -50,21 +49,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn global_config_account_space_matches_layout() {
+    fn global_config_account_space_matches_init_space() {
         let cfg = GlobalConfig {
             authority: Pubkey::new_unique(),
             secondary_authority: Pubkey::new_unique(),
-            platform_fee_bps: 0,
+            deposit_platform_fee_bps: 0,
             platform_treasury: Pubkey::new_unique(),
             platform_fee_lamports: 0,
             next_category_id: 0,
+            parimutuel_penalty_protocol_share_bps: 0,
+            parimutuel_withdraw_platform_fee_bps: 0,
             _padding: [0u8; GLOBAL_CONFIG_ACCOUNT_SPACE_PADDING],
         };
         let body = cfg.try_to_vec().expect("serialize");
         assert_eq!(
             8 + body.len(),
-            GLOBAL_CONFIG_ACCOUNT_SPACE,
-            "discriminator + borsh body must equal GLOBAL_CONFIG_ACCOUNT_SPACE"
+            GlobalConfig::LEN,
+            "discriminator + borsh body must equal GlobalConfig::LEN"
         );
     }
 }

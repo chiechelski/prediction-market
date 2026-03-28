@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type RefObject } from 'react';
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { fetchUserProfile, type UserProfileData } from '@/lib/marketActions';
@@ -13,8 +14,8 @@ import { usePlatformAccess } from '@/hooks/usePlatformAccess';
 
 const nav = [
   { to: '/markets', label: 'Markets' },
-  { to: '/creator', label: 'Creator' },
-  { to: '/judges', label: 'Judges' },
+  { to: '/creator', label: 'My markets' },
+  { to: '/judges', label: 'Your resolutions' },
   { to: '/create', label: 'Create' },
   { to: '/platform', label: 'Platform' },
   { to: '/docs', label: 'Docs' },
@@ -323,10 +324,17 @@ function useCloseOnOutsideAndEscape(
 const headerMenuLinkClass =
   'flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors';
 
+const sectorNav = [
+  { sector: 'all' as const, label: 'All Markets', icon: 'analytics' },
+  { sector: 'sports' as const, label: 'Sports', icon: 'sports_score' },
+  { sector: 'crypto' as const, label: 'Crypto', icon: 'currency_bitcoin' },
+  { sector: 'politics' as const, label: 'Politics', icon: 'gavel' },
+  { sector: 'economics' as const, label: 'Economics', icon: 'trending_up' },
+];
+
 const sideNav = [
-  { to: '/markets', label: 'Markets', icon: 'leaderboard' },
-  { to: '/creator', label: 'Creator', icon: 'person' },
-  { to: '/judges', label: 'Judges', icon: 'gavel' },
+  { to: '/creator', label: 'My markets', icon: 'person' },
+  { to: '/judges', label: 'Your resolutions', icon: 'how_to_vote' },
   { to: '/platform', label: 'Platform', icon: 'tune' },
   { to: '/settings', label: 'Settings', icon: 'manage_accounts' },
 ];
@@ -343,6 +351,7 @@ function WalletAvatar({ address }: { address: string }) {
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { connection } = useConnection();
   const wallet = useWallet();
   const { connected, publicKey } = wallet;
@@ -361,6 +370,27 @@ export default function Layout() {
     : '';
 
   const [sidebarProfile, setSidebarProfile] = useState<UserProfileData | null>(null);
+  const [solBalance, setSolBalance] = useState<number | null>(null);
+  /** Sectors nested under Markets; collapsed by default, opens when a sector is active in the URL. */
+  const [marketsSectorsOpen, setMarketsSectorsOpen] = useState(false);
+  const urlSector = searchParams.get('sector');
+  useEffect(() => {
+    if (urlSector && urlSector !== 'all') setMarketsSectorsOpen(true);
+  }, [urlSector]);
+
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      setSolBalance(null);
+      return;
+    }
+    let cancelled = false;
+    connection.getBalance(publicKey).then((lamports) => {
+      if (!cancelled) setSolBalance(lamports / LAMPORTS_PER_SOL);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, connected, publicKey?.toBase58()]);
 
   useEffect(() => {
     if (!connected || !publicKey) { setSidebarProfile(null); return; }
@@ -375,7 +405,7 @@ export default function Layout() {
     <div className="min-h-screen flex flex-col bg-background text-on-surface">
 
       {/* ── Top Nav ─────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-50 bg-background shadow-[0_1px_0_0_rgba(73,68,85,0.15)]">
+      <nav className="sticky top-0 z-50 bg-background shadow-[0_40px_40px_0_rgba(140,97,255,0.08)]">
         <div className="flex justify-between items-center w-full px-8 h-16 max-w-[1920px] mx-auto">
 
           {/* Brand + top nav links (hidden on xl when sidebar is shown) */}
@@ -417,6 +447,19 @@ export default function Layout() {
                   placeholder="Search markets..."
                   type="text"
                 />
+              </div>
+            )}
+            {connected && publicKey && (
+              <div className="hidden sm:flex items-center gap-2 rounded-lg border border-outline-variant/15 bg-surface-container px-3 py-1.5">
+                <span
+                  className="material-symbols-outlined text-[18px] text-secondary leading-none"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  account_balance_wallet
+                </span>
+                <span className="text-xs font-medium tabular-nums text-on-surface">
+                  {solBalance == null ? '…' : `${solBalance.toFixed(2)} SOL`}
+                </span>
               </div>
             )}
             <NetworkSelector />
@@ -557,8 +600,95 @@ export default function Layout() {
               </div>
             </div>
 
+            <div className="px-4 mb-3">
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">
+                Navigation
+              </h3>
+            </div>
+
             {/* Nav items */}
             <div className="flex min-h-0 flex-1 flex-col gap-1 px-4">
+              {/* Markets + collapsible sectors (avoids duplicate highlight vs a separate "Markets" row) */}
+              <div className="mb-1">
+                <div
+                  className={`flex items-center gap-1 rounded-lg ${
+                    location.pathname === '/markets'
+                      ? 'bg-surface-container-low/40'
+                      : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    aria-expanded={marketsSectorsOpen}
+                    aria-label={marketsSectorsOpen ? 'Collapse market sectors' : 'Expand market sectors'}
+                    onClick={() => setMarketsSectorsOpen((v) => !v)}
+                    className="flex h-11 w-9 shrink-0 items-center justify-center rounded-lg text-outline hover:bg-surface-container-low hover:text-on-surface"
+                  >
+                    <span
+                      className={`material-symbols-outlined text-[22px] transition-transform ${
+                        marketsSectorsOpen ? 'rotate-180' : ''
+                      }`}
+                    >
+                      expand_more
+                    </span>
+                  </button>
+                  <Link
+                    to="/markets"
+                    className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg py-2.5 pl-1 pr-3 text-sm font-semibold transition-all ${
+                      location.pathname === '/markets'
+                        ? 'text-primary'
+                        : 'text-outline hover:text-on-surface'
+                    }`}
+                  >
+                    <span
+                      className="material-symbols-outlined text-[20px] shrink-0"
+                      style={
+                        location.pathname === '/markets'
+                          ? { fontVariationSettings: "'FILL' 1" }
+                          : undefined
+                      }
+                    >
+                      leaderboard
+                    </span>
+                    <span className="truncate">Markets</span>
+                  </Link>
+                </div>
+                {marketsSectorsOpen && (
+                  <div className="ml-2 mt-0.5 space-y-0.5 border-l border-outline-variant/20 pl-2">
+                    {sectorNav.map(({ sector, label, icon }) => {
+                      const to =
+                        sector === 'all' ? '/markets' : `/markets?sector=${sector}`;
+                      const onMarkets = location.pathname === '/markets';
+                      const sectorParam = searchParams.get('sector');
+                      const active =
+                        onMarkets &&
+                        (sector === 'all'
+                          ? !sectorParam || sectorParam === 'all'
+                          : sectorParam === sector);
+                      return (
+                        <Link
+                          key={sector}
+                          to={to}
+                          className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium transition-all ${
+                            active
+                              ? 'bg-surface-container-low text-primary'
+                              : 'text-outline hover:bg-surface-container-low/50 hover:text-on-surface'
+                          }`}
+                        >
+                          <span
+                            className="material-symbols-outlined text-[18px] shrink-0"
+                            style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}
+                          >
+                            {icon}
+                          </span>
+                          {label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {sideNav
                 .filter(({ to }) => to !== '/platform' || showPlatformNav)
                 .map(({ to, label, icon }) => {

@@ -13,10 +13,10 @@ export interface CreateMarketParams {
   /** Creator fee in basis points (0–10000). */
   creatorFeeBps: number;
   /**
-   * Optional per-market platform fee override in bps.
-   * Pass 0 to inherit the global config default.
+   * Optional per-market platform fee on **mint complete set** (deposit) in bps.
+   * Pass 0 to inherit the global config default (`depositPlatformFeeBps`).
    */
-  platformFeeBps: number;
+  depositPlatformFeeBps: number;
   /** Number of resolvers (1–8). */
   numResolvers: number;
   /** Market title (1–128 UTF-8 bytes). */
@@ -26,6 +26,37 @@ export interface CreateMarketParams {
    * Must be an active `MarketCategory` account when set.
    */
   marketCategory?: PublicKey | null;
+  /**
+   * `completeSet` (default) — SPL outcome tokens + mint/redeem.
+   * `parimutuel` — ledger stakes only; call `initializeParimutuelState` instead of mints.
+   */
+  marketType?: 'completeSet' | 'parimutuel';
+  /**
+   * When `marketType === 'parimutuel'`, optional overrides for pool init. Defaults are merged with
+   * `penaltySurplusCreatorShareBps = 10000 - global.parimutuelPenaltyProtocolShareBps`.
+   */
+  parimutuelInit?: Partial<{
+    earlyWithdrawPenaltyBps: number;
+    penaltyKeptInPoolBps: number;
+    penaltySurplusCreatorShareBps: number;
+  }>;
+}
+
+/**
+ * Anchor IDL enum shape for `createMarket` args (`MarketType`).
+ * Use this so `tsc` matches `DecodeEnum` (each variant must be a single key).
+ */
+export type MarketTypeIx =
+  | { completeSet: Record<string, never> }
+  | { parimutuel: Record<string, never> };
+
+export function toMarketTypeIx(
+  marketType: CreateMarketParams['marketType']
+): MarketTypeIx {
+  if (marketType === 'parimutuel') {
+    return { parimutuel: {} };
+  }
+  return { completeSet: {} };
 }
 
 export interface InitializeMarketResolversParams {
@@ -36,6 +67,37 @@ export interface InitializeMarketResolversParams {
     PublicKey, PublicKey, PublicKey, PublicKey,
   ];
   numResolvers: number;
+}
+
+/** Pari-mutuel pool account (after `createMarket` with `marketType: parimutuel`). */
+export interface InitializeParimutuelStateParams {
+  marketId: BN;
+  /** Bps of the withdrawn stake withheld as penalty (before refund). */
+  earlyWithdrawPenaltyBps: number;
+  /** Of the withheld penalty, bps that stay in the outcome pool; the rest is surplus. */
+  penaltyKeptInPoolBps: number;
+  /**
+   * Bps of penalty surplus to the market creator — must sum with
+   * `globalConfig.parimutuelPenaltyProtocolShareBps` to 10000.
+   */
+  penaltySurplusCreatorShareBps: number;
+}
+
+export interface ParimutuelStakeParams {
+  marketId: BN;
+  outcomeIndex: number;
+  amount: BN;
+}
+
+export interface ParimutuelWithdrawParams {
+  marketId: BN;
+  outcomeIndex: number;
+  amount: BN;
+}
+
+export interface ParimutuelClaimParams {
+  marketId: BN;
+  outcomeIndex: number;
 }
 
 export interface MintCompleteSetParams {
@@ -84,18 +146,28 @@ export interface VoidMarketParams {
 export interface InitializeConfigParams {
   /** Secondary authority pubkey — stored on-chain, can also call restricted instructions. */
   secondaryAuthority: PublicKey;
-  platformFeeBps: number;
+  /** Default platform fee (bps) on **mint complete set** and **pari-mutuel stake** (collateral deposit). */
+  depositPlatformFeeBps: number;
   /** Wallet address that receives platform fees (ATAs are derived per-mint at redemption time). */
   platformTreasuryWallet: PublicKey;
-  /** Flat SOL fee charged per mint/redeem transaction (lamports). Use 0 to disable. */
+  /** Flat SOL fee charged per mint, redeem, pari stake, and pari withdraw (lamports). Use 0 to disable. */
   platformFeeLamports: BN;
+  /**
+   * Default protocol share (bps) of **pari-mutuel early-withdraw penalty surplus** (after the pool
+   * keeps its slice). Creator sets the complementary share at `initializeParimutuelState`.
+   */
+  parimutuelPenaltyProtocolShareBps: number;
+  /** Bps of gross pari-mutuel withdraw amount; taken from the post-penalty refund slice. */
+  parimutuelWithdrawPlatformFeeBps: number;
 }
 
 export interface UpdateConfigParams {
   secondaryAuthority: PublicKey;
-  platformFeeBps: number;
+  depositPlatformFeeBps: number;
   platformTreasuryWallet: PublicKey;
   platformFeeLamports: BN;
+  parimutuelPenaltyProtocolShareBps: number;
+  parimutuelWithdrawPlatformFeeBps: number;
   /** Pass a new pubkey to rotate the primary authority; pass current authority to keep unchanged. */
   newAuthority: PublicKey;
 }
@@ -106,13 +178,18 @@ export interface GlobalConfigAccount {
   authority: PublicKey;
   /** Optional secondary authority that can call restricted instructions. */
   secondaryAuthority: PublicKey;
-  platformFeeBps: number;
+  /** Default platform fee (bps) on mint complete set (deposit). */
+  depositPlatformFeeBps: number;
   /** Wallet address (not ATA) — ATAs are derived per-mint at redemption time. */
   platformTreasury: PublicKey;
   /** Flat SOL fee charged per mint/redeem transaction (lamports). */
   platformFeeLamports: BN;
   /** Monotonic counter for `create_market_category` — must match the next category id. */
   nextCategoryId: BN;
+  /** Default protocol share of pari-mutuel penalty surplus (see `InitializeParimutuelStateParams`). */
+  parimutuelPenaltyProtocolShareBps: number;
+  /** Bps of gross pari-mutuel withdraw amount; taken from the post-penalty refund slice. */
+  parimutuelWithdrawPlatformFeeBps: number;
 }
 
 export interface MarketAccount {
@@ -128,11 +205,14 @@ export interface MarketAccount {
   creator: PublicKey;
   creatorFeeBps: number;
   creatorFeeAccount: PublicKey;
-  platformFeeBps: number;
+  /** 0 = use global — platform fee on mint complete set (deposit). */
+  depositPlatformFeeBps: number;
   bump: number;
   title: string;
   /** `Pubkey::default()` when uncategorized. */
   category: PublicKey;
+  /** Anchor enum: `{ completeSet: {} }` or `{ parimutuel: {} }`. */
+  marketType: { completeSet: Record<string, never> } | { parimutuel: Record<string, never> };
 }
 
 export interface ResolverAccount {

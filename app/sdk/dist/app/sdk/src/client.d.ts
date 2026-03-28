@@ -2,7 +2,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { Program, BN } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { PredictionMarket } from '../../../target/types/prediction_market';
-import type { CreateMarketParams, InitializeConfigParams, UpdateConfigParams, InitializeMarketResolversParams, MintCompleteSetParams, RedeemCompleteSetParams, VoteResolutionParams, FinalizeResolutionParams, RevokeResolutionVoteParams, RedeemWinningParams, CloseMarketEarlyParams, VoidMarketParams, GlobalConfigAccount, MarketAccount, UpsertUserProfileParams, VerifyUserProfileParams, UserProfileAccount } from './types';
+import type { CreateMarketParams, InitializeParimutuelStateParams, ParimutuelStakeParams, ParimutuelWithdrawParams, ParimutuelClaimParams, InitializeConfigParams, UpdateConfigParams, InitializeMarketResolversParams, MintCompleteSetParams, RedeemCompleteSetParams, VoteResolutionParams, FinalizeResolutionParams, RevokeResolutionVoteParams, RedeemWinningParams, CloseMarketEarlyParams, VoidMarketParams, GlobalConfigAccount, MarketAccount, UpsertUserProfileParams, VerifyUserProfileParams, UserProfileAccount } from './types';
 export declare class PredictionMarketClient {
     readonly program: Program<PredictionMarket>;
     readonly connection: Connection;
@@ -50,6 +50,11 @@ export declare class PredictionMarketClient {
      * Returns the market PDA.
      */
     createMarketFull(creator: PublicKey, collateralMint: PublicKey, creatorFeeAccount: PublicKey, resolverPubkeys: [PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey], params: CreateMarketParams, opts?: anchor.web3.ConfirmOptions): Promise<PublicKey>;
+    /** Pari-mutuel pool + penalty params (step after resolvers, replaces mint init). */
+    initializeParimutuelState(marketPda: PublicKey, params: InitializeParimutuelStateParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
+    parimutuelStake(marketPda: PublicKey, params: ParimutuelStakeParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
+    parimutuelWithdraw(marketPda: PublicKey, params: ParimutuelWithdrawParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
+    parimutuelClaim(marketPda: PublicKey, params: ParimutuelClaimParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
     /**
      * Mint a complete set of outcome tokens.
      * Fetches `market.outcomeCount` and passes `2 * outcomeCount` remaining accounts:

@@ -23,6 +23,10 @@ pub fn handler<'info>(
 ) -> Result<()> {
     let clock = Clock::get()?;
     let market = &ctx.accounts.market;
+    require!(
+        market.market_type == MarketType::CompleteSet,
+        PredictionMarketError::WrongMarketType
+    );
     require!(!market.is_closed(&clock), PredictionMarketError::MarketClosed);
     require!(!market.voided, PredictionMarketError::MarketVoided);
     require!(args.amount > 0, PredictionMarketError::ZeroMintAmount);
@@ -50,8 +54,8 @@ pub fn handler<'info>(
     );
 
     let global_config = &ctx.accounts.global_config;
-    let global_bps = global_config.platform_fee_bps;
-    let platform_fee = market.calculate_platform_fee(args.amount, global_bps);
+    let global_bps = global_config.deposit_platform_fee_bps;
+    let platform_fee = market.calculate_deposit_platform_fee(args.amount, global_bps);
     let creator_fee = market.calculate_creator_fee(args.amount);
     let net = args
         .amount

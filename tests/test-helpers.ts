@@ -124,6 +124,22 @@ export const deriveUserProfile = (programId: PublicKey, wallet: PublicKey): Publ
     programId
   )[0];
 
+/** Parimutuel pool PDA — seeds: `["pari", market]`. */
+export const deriveParimutuelState = (programId: PublicKey, market: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync([Buffer.from('pari'), market.toBuffer()], programId)[0];
+
+/** User outcome position — seeds: `["pari-pos", market, user, outcome_index]`. */
+export const deriveParimutuelPosition = (
+  programId: PublicKey,
+  market: PublicKey,
+  user: PublicKey,
+  outcomeIndex: number
+): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('pari-pos'), market.toBuffer(), user.toBuffer(), Buffer.from([outcomeIndex])],
+    programId
+  )[0];
+
 /** Market category PDA — seeds: `["market-category", id u64 LE]`. */
 export const deriveMarketCategory = (
   programId: PublicKey,

@@ -1,8 +1,13 @@
+//! Prediction market program.
+// Anchor `#[program]` macro expansion still uses deprecated `AccountInfo::realloc` until upstream moves to `resize`.
+#![allow(deprecated)]
+
 use anchor_lang::prelude::*;
 
 declare_id!("C5QvWnGHeC6o7N68heWFKPvC35eggZ9Mrgqzj86WwrBv");
 
 mod errors;
+pub mod fees;
 mod state;
 mod utils;
 
@@ -14,7 +19,11 @@ pub mod finalize_resolution;
 pub mod initialize_config;
 pub mod initialize_market_mints;
 pub mod initialize_market_resolvers;
+pub mod initialize_parimutuel_state;
 pub mod mint_complete_set;
+pub mod parimutuel_claim;
+pub mod parimutuel_stake;
+pub mod parimutuel_withdraw;
 pub mod redeem_complete_set;
 pub mod redeem_winning;
 pub mod remove_allowed_collateral_mint;
@@ -35,7 +44,11 @@ pub use finalize_resolution::{FinalizeResolution, FinalizeResolutionArgs};
 pub use initialize_config::InitializeConfig;
 pub use initialize_market_mints::{InitializeMarketMints, InitializeMarketMintsArgs};
 pub use initialize_market_resolvers::{InitializeMarketResolvers, InitializeMarketResolversArgs};
+pub use initialize_parimutuel_state::{InitializeParimutuelState, InitializeParimutuelStateArgs};
 pub use mint_complete_set::{MintCompleteSet, MintCompleteSetArgs};
+pub use parimutuel_claim::{ParimutuelClaim, ParimutuelClaimArgs};
+pub use parimutuel_stake::{ParimutuelStake, ParimutuelStakeArgs};
+pub use parimutuel_withdraw::{ParimutuelWithdraw, ParimutuelWithdrawArgs};
 pub use redeem_complete_set::{RedeemCompleteSet, RedeemCompleteSetArgs};
 pub use redeem_winning::{RedeemWinning, RedeemWinningArgs};
 pub use remove_allowed_collateral_mint::RemoveAllowedCollateralMint;
@@ -87,6 +100,18 @@ pub mod __client_accounts_initialize_market_mints {
 pub mod __client_accounts_initialize_market_resolvers {
     pub use crate::initialize_market_resolvers::__client_accounts_initialize_market_resolvers::*;
 }
+pub mod __client_accounts_initialize_parimutuel_state {
+    pub use crate::initialize_parimutuel_state::__client_accounts_initialize_parimutuel_state::*;
+}
+pub mod __client_accounts_parimutuel_claim {
+    pub use crate::parimutuel_claim::__client_accounts_parimutuel_claim::*;
+}
+pub mod __client_accounts_parimutuel_stake {
+    pub use crate::parimutuel_stake::__client_accounts_parimutuel_stake::*;
+}
+pub mod __client_accounts_parimutuel_withdraw {
+    pub use crate::parimutuel_withdraw::__client_accounts_parimutuel_withdraw::*;
+}
 pub mod __client_accounts_remove_allowed_collateral_mint {
     pub use crate::remove_allowed_collateral_mint::__client_accounts_remove_allowed_collateral_mint::*;
 }
@@ -119,21 +144,41 @@ pub mod prediction_market {
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
         secondary_authority: Pubkey,
-        platform_fee_bps: u16,
+        deposit_platform_fee_bps: u16,
         platform_treasury: Pubkey,
         platform_fee_lamports: u64,
+        parimutuel_penalty_protocol_share_bps: u16,
+        parimutuel_withdraw_platform_fee_bps: u16,
     ) -> Result<()> {
-        initialize_config::handler(ctx, secondary_authority, platform_fee_bps, platform_treasury, platform_fee_lamports)
+        initialize_config::handler(
+            ctx,
+            secondary_authority,
+            deposit_platform_fee_bps,
+            platform_treasury,
+            platform_fee_lamports,
+            parimutuel_penalty_protocol_share_bps,
+            parimutuel_withdraw_platform_fee_bps,
+        )
     }
 
     pub fn update_config(
         ctx: Context<UpdateConfig>,
         secondary_authority: Pubkey,
-        platform_fee_bps: u16,
+        deposit_platform_fee_bps: u16,
         platform_treasury: Pubkey,
         platform_fee_lamports: u64,
+        parimutuel_penalty_protocol_share_bps: u16,
+        parimutuel_withdraw_platform_fee_bps: u16,
     ) -> Result<()> {
-        update_config::handler(ctx, secondary_authority, platform_fee_bps, platform_treasury, platform_fee_lamports)
+        update_config::handler(
+            ctx,
+            secondary_authority,
+            deposit_platform_fee_bps,
+            platform_treasury,
+            platform_fee_lamports,
+            parimutuel_penalty_protocol_share_bps,
+            parimutuel_withdraw_platform_fee_bps,
+        )
     }
 
     pub fn add_allowed_collateral_mint(ctx: Context<AddAllowedCollateralMint>) -> Result<()> {
@@ -176,6 +221,28 @@ pub mod prediction_market {
         args: InitializeMarketResolversArgs,
     ) -> Result<()> {
         initialize_market_resolvers::handler(ctx, args)
+    }
+
+    pub fn initialize_parimutuel_state(
+        ctx: Context<InitializeParimutuelState>,
+        args: InitializeParimutuelStateArgs,
+    ) -> Result<()> {
+        initialize_parimutuel_state::handler(ctx, args)
+    }
+
+    pub fn parimutuel_stake(ctx: Context<ParimutuelStake>, args: ParimutuelStakeArgs) -> Result<()> {
+        parimutuel_stake::handler(ctx, args)
+    }
+
+    pub fn parimutuel_withdraw(
+        ctx: Context<ParimutuelWithdraw>,
+        args: ParimutuelWithdrawArgs,
+    ) -> Result<()> {
+        parimutuel_withdraw::handler(ctx, args)
+    }
+
+    pub fn parimutuel_claim(ctx: Context<ParimutuelClaim>, args: ParimutuelClaimArgs) -> Result<()> {
+        parimutuel_claim::handler(ctx, args)
     }
 
     pub fn mint_complete_set<'info>(

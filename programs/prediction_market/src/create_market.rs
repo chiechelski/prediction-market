@@ -13,11 +13,14 @@ pub struct CreateMarketArgs {
     pub resolution_threshold: u8,
     pub close_at: i64,
     pub creator_fee_bps: u16,
-    pub platform_fee_bps: u16,
+    /// 0 = use global default — platform fee on **mint complete set** (deposit collateral).
+    pub deposit_platform_fee_bps: u16,
     /// Up to 8 resolver pubkeys, set during initialize_market_resolvers.
     pub num_resolvers: u8,
     /// UTF-8 market title (1–128 bytes after trim).
     pub title: String,
+    /// [`MarketType::CompleteSet`] (SPL outcomes) or [`MarketType::Parimutuel`] (ledger pool).
+    pub market_type: MarketType,
 }
 
 pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()> {
@@ -36,9 +39,9 @@ pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()>
             && args.resolution_threshold <= args.num_resolvers,
         PredictionMarketError::InvalidResolutionThreshold
     );
-    let global_bps = ctx.accounts.global_config.platform_fee_bps;
-    let effective_platform_bps = if args.platform_fee_bps > 0 {
-        args.platform_fee_bps
+    let global_bps = ctx.accounts.global_config.deposit_platform_fee_bps;
+    let effective_platform_bps = if args.deposit_platform_fee_bps > 0 {
+        args.deposit_platform_fee_bps
     } else {
         global_bps
     };
@@ -74,10 +77,12 @@ pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()>
     market.creator = ctx.accounts.creator.key();
     market.creator_fee_bps = args.creator_fee_bps;
     market.creator_fee_account = ctx.accounts.creator_fee_account.key();
-    market.platform_fee_bps = args.platform_fee_bps;
+    market.deposit_platform_fee_bps = args.deposit_platform_fee_bps;
     market.bump = ctx.bumps.market;
     market.title = title.to_string();
     market.category = category_pk;
+    market.market_type = args.market_type;
+    market._padding = [0u8; MARKET_ACCOUNT_SPACE_PADDING];
 
     Ok(())
 }

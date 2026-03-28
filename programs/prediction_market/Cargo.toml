@@ -16,6 +16,9 @@ no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
+# Anchor proc-macros emit cfgs (`anchor-debug`, etc.) that stable `check-cfg` does not know; silence noise.
+[lints.rust]
+unexpected_cfgs = "allow"
 
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }

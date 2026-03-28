@@ -15,6 +15,7 @@ import {
   getOrCreateAssociatedTokenAccount,
   mintTo,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token';
 
 const RPC_URL = process.env.RPC_URL ?? 'http://127.0.0.1:8899';
@@ -32,6 +33,16 @@ const PAYER_KEYPAIR_PATH =
 function loadKeypair(filePath: string): Keypair {
   const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   return Keypair.fromSecretKey(Uint8Array.from(raw));
+}
+
+async function tokenProgramForMint(
+  connection: Connection,
+  mint: PublicKey
+): Promise<PublicKey> {
+  const info = await connection.getAccountInfo(mint);
+  if (!info) return TOKEN_PROGRAM_ID;
+  if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+  return TOKEN_PROGRAM_ID;
 }
 
 async function main() {
@@ -63,8 +74,15 @@ async function main() {
   const payer = loadKeypair(PAYER_KEYPAIR_PATH);
   const mintKeypair = loadKeypair(MINT_KEYPAIR_PATH);
   const amountRaw = BigInt(amountUi) * BigInt(10 ** DECIMALS);
+  const programId = await tokenProgramForMint(
+    connection,
+    mintKeypair.publicKey
+  );
 
   console.log(`\nMint  : ${mintKeypair.publicKey.toBase58()}`);
+  console.log(
+    `Program: ${programId.equals(TOKEN_2022_PROGRAM_ID) ? 'Token-2022' : 'SPL Token'}`
+  );
   console.log(`Amount: ${amountUi.toLocaleString()} tUSDC per address\n`);
 
   for (const addr of addresses) {
@@ -84,7 +102,7 @@ async function main() {
       false,
       'confirmed',
       { commitment: 'confirmed' },
-      TOKEN_PROGRAM_ID
+      programId
     );
 
     await mintTo(
@@ -96,7 +114,7 @@ async function main() {
       amountRaw,
       [],
       { commitment: 'confirmed' },
-      TOKEN_PROGRAM_ID
+      programId
     );
 
     console.log(`  ✓ ${amountUi.toLocaleString()} tUSDC → ${recipient.toBase58()}`);

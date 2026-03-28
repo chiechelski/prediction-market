@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
 
+use crate::errors::PredictionMarketError;
 use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token};
@@ -14,9 +15,13 @@ pub struct InitializeMarketMintsArgs {
 }
 
 pub fn handler(
-    _ctx: Context<InitializeMarketMints>,
+    ctx: Context<InitializeMarketMints>,
     _args: InitializeMarketMintsArgs,
 ) -> Result<()> {
+    require!(
+        ctx.accounts.market.market_type == MarketType::CompleteSet,
+        PredictionMarketError::WrongMarketType
+    );
     Ok(())
 }
 
@@ -36,20 +41,20 @@ pub struct InitializeMarketMints<'info> {
 
     pub system_program: Program<'info, System>,
 
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[0]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[0u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_0: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[1]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[1u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_1: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[2]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[2u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_2: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[3]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[3u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_3: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[4]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[4u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_4: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[5]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[5u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_5: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[6]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[6u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_6: Account<'info, Mint>,
-    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint", &[7]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
+    #[account(init, payer = payer, seeds = [market.key().as_ref(), b"outcome-mint".as_ref(), &[7u8]], bump, mint::decimals = market.collateral_decimals, mint::authority = market, mint::token_program = token_program)]
     pub outcome_mint_7: Account<'info, Mint>,
 }

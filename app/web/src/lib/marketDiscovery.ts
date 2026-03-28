@@ -30,6 +30,8 @@ export type ChainMarketRow = {
   title: string;
   /** Base58 category PDA; `1111…` = uncategorized. */
   categoryPubkey: string;
+  /** From on-chain `market_type`. */
+  marketKind: 'completeSet' | 'parimutuel';
 };
 
 export type DashboardMarketEntry = {
@@ -41,6 +43,8 @@ export type DashboardMarketEntry = {
   /** Display title (falls back to label for legacy registry rows). */
   title?: string;
   category?: string;
+  /** Local-only creator display name from registry. */
+  creatorDisplayName?: string;
   createdAt: number;
   outcomeCount?: number;
   closeAt?: number;
@@ -48,6 +52,8 @@ export type DashboardMarketEntry = {
   resolvedOutcomeIndex?: number | null;
   voided?: boolean;
   resolutionThreshold?: number;
+  /** Omitted = treat as complete-set (legacy registry). */
+  marketKind?: 'completeSet' | 'parimutuel';
 };
 
 export type MarketStatus = 'open' | 'closing-soon' | 'closed' | 'resolved' | 'voided';
@@ -75,6 +81,52 @@ export function formatTimeLeft(closeAt: number): string {
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+/** URL `?sector=` values: heuristic match on category label for browsing. */
+export function marketMatchesSector(
+  category: string | undefined,
+  sector: string | null
+): boolean {
+  if (!sector || sector === 'all') return true;
+  const c = (category ?? '').toLowerCase();
+  switch (sector) {
+    case 'sports':
+      return /sport|football|soccer|match|nba|nfl|olymp|tennis|basketball|f1|formula|cricket|rugby|hockey|mlb|ufc/i.test(
+        c
+      );
+    case 'crypto':
+      return /crypto|bitcoin|btc|eth|sol|defi|token|blockchain|nft|stablecoin/i.test(c);
+    case 'politics':
+      return /politic|election|government|parliament|president|vote|referendum|congress|senate/i.test(
+        c
+      );
+    case 'economics':
+      return /econ|gdp|inflation|fed|stock|finance|macro|interest|recession|employment|cpi/i.test(
+        c
+      );
+    default:
+      return true;
+  }
+}
+
+export type MarketSectorSlug = 'sports' | 'crypto' | 'politics' | 'economics';
+
+/** First matching sector for breadcrumbs / deep links; order avoids double-matching. */
+export function inferMarketSectorSlug(
+  category: string | undefined
+): MarketSectorSlug | null {
+  if (!category?.trim()) return null;
+  const order: MarketSectorSlug[] = [
+    'sports',
+    'crypto',
+    'politics',
+    'economics',
+  ];
+  for (const s of order) {
+    if (marketMatchesSector(category, s)) return s;
+  }
+  return null;
 }
 
 function shortPk(pda: string) {
@@ -118,22 +170,30 @@ export async function fetchAllMarketsFromChain(
   });
   const program = new Program(idl, provider);
   const rows = await (program.account as any).market.all();
-  return rows.map((row: { publicKey: PublicKey; account: any }) => ({
-    marketPda: row.publicKey,
-    creator: row.account.creator.toBase58(),
-    outcomeCount: row.account.outcomeCount as number,
-    closeAt: Number(row.account.closeAt),
-    closed: row.account.closed as boolean,
-    resolvedOutcomeIndex:
-      row.account.resolvedOutcomeIndex !== null &&
-      row.account.resolvedOutcomeIndex !== undefined
-        ? Number(row.account.resolvedOutcomeIndex)
-        : null,
-    voided: row.account.voided as boolean,
-    resolutionThreshold: row.account.resolutionThreshold as number,
-    title: String(row.account.title ?? ''),
-    categoryPubkey: (row.account.category as PublicKey).toBase58(),
-  }));
+  return rows.map((row: { publicKey: PublicKey; account: any }) => {
+    const mt = row.account.marketType;
+    const marketKind =
+      mt && typeof mt === 'object' && 'parimutuel' in mt
+        ? 'parimutuel'
+        : 'completeSet';
+    return {
+      marketPda: row.publicKey,
+      creator: row.account.creator.toBase58(),
+      outcomeCount: row.account.outcomeCount as number,
+      closeAt: Number(row.account.closeAt),
+      closed: row.account.closed as boolean,
+      resolvedOutcomeIndex:
+        row.account.resolvedOutcomeIndex !== null &&
+        row.account.resolvedOutcomeIndex !== undefined
+          ? Number(row.account.resolvedOutcomeIndex)
+          : null,
+      voided: row.account.voided as boolean,
+      resolutionThreshold: row.account.resolutionThreshold as number,
+      title: String(row.account.title ?? ''),
+      categoryPubkey: (row.account.category as PublicKey).toBase58(),
+      marketKind,
+    };
+  });
 }
 
 function resolveCategoryLabel(
@@ -168,6 +228,7 @@ export function mergeRegistryAndChain(
       category: c
         ? resolveCategoryLabel(c.categoryPubkey, labels, r.category)
         : r.category,
+      creatorDisplayName: r.creatorDisplayName,
       createdAt: r.createdAt,
       outcomeCount: c?.outcomeCount,
       closeAt: c?.closeAt,
@@ -175,6 +236,7 @@ export function mergeRegistryAndChain(
       resolvedOutcomeIndex: c?.resolvedOutcomeIndex,
       voided: c?.voided,
       resolutionThreshold: c?.resolutionThreshold,
+      marketKind: c?.marketKind,
     });
   }
 
@@ -196,6 +258,7 @@ export function mergeRegistryAndChain(
       resolvedOutcomeIndex: c.resolvedOutcomeIndex,
       voided: c.voided,
       resolutionThreshold: c.resolutionThreshold,
+      marketKind: c.marketKind,
     });
   }
 

@@ -91,6 +91,23 @@ Option 2 can feel like “pick one” **without** changing vault math, if users 
 
 ---
 
+## Two on-chain modes (implemented)
+
+The program supports **`market_type`** on each [`Market`](../programs/prediction_market/src/state/market.rs):
+
+| Mode | Participation | Resolution / payout |
+|------|-----------------|---------------------|
+| **`CompleteSet`** | SPL outcome mints; `mint_complete_set` / `redeem_complete_set` / `redeem_winning` | Same as before (M-of-N votes + outcome tokens). |
+| **`Parimutuel`** | Ledger-only: `parimutuel_stake`, `parimutuel_withdraw` (early-withdraw penalty), `parimutuel_claim` after resolve | Same resolver voting; **no** outcome mints — pool accounting in [`ParimutuelState`](../programs/prediction_market/src/state/parimutuel_state.rs). |
+
+**Pari early-withdraw penalty (naming):** `early_withdraw_penalty_bps` is the share of the **withdrawn stake amount** withheld as penalty. Of that, `penalty_kept_in_pool_bps` stays in the outcome pool; the **penalty surplus** is split between protocol and creator using `global_config.parimutuel_penalty_protocol_share_bps` (default) and `penalty_surplus_creator_share_bps` at `initialize_parimutuel_state` (must sum to 10000 bps).
+
+**Global fees:** `deposit_platform_fee_bps` is the default platform fee on **mint complete set** (collateral deposit). It is not a generic “withdraw fee”; pari-mutuel uses the penalty fields above.
+
+Create flow: `create_market` → `initialize_market_resolvers` → either `initialize_market_mints` (complete-set) or `initialize_parimutuel_state` (early-withdraw bps, pool retention bps, creator surplus share). The web app exposes this as “Complete-set” vs “Pari-mutuel” on **Create market**, and filters/badges on **Markets**.
+
+---
+
 ## Related UI
 
-The market detail **Participate** section documents Goal 1 behavior end-user-facing. This file is the longer-lived product/engineering reference.
+The market detail **Participate** section documents complete-set Goal 1 behavior and a separate **pari-mutuel** panel when `market_type` is pari-mutuel. This file is the longer-lived product/engineering reference.

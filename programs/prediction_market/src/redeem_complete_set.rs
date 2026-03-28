@@ -14,6 +14,10 @@ pub struct RedeemCompleteSetArgs {
 pub fn handler(ctx: Context<RedeemCompleteSet>, args: RedeemCompleteSetArgs) -> Result<()> {
     let clock = Clock::get()?;
     let market = &ctx.accounts.market;
+    require!(
+        market.market_type == MarketType::CompleteSet,
+        PredictionMarketError::WrongMarketType
+    );
     let open = !market.is_closed(&clock);
     let allowed = open || market.voided || market.is_resolved();
     require!(allowed, PredictionMarketError::MarketClosed);

@@ -17,6 +17,8 @@ import {
   toDatetimeLocalInputValue,
 } from '@/lib/datetimeLocal';
 import { fetchMarketCategories, type ChainMarketCategory } from '@/lib/marketDiscovery';
+import { formatBpsAsPercent } from '@/lib/bps';
+import { useToast } from '@/context/ToastContext';
 
 function parseExtraPubkeys(text: string): PublicKey[] {
   const parts = text
@@ -38,6 +40,7 @@ export default function CreateMarket() {
   const navigate = useNavigate();
   const { connection } = useConnection();
   const wallet = useWallet();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [solBalanceLamports, setSolBalanceLamports] = useState<number | null>(
@@ -56,6 +59,8 @@ export default function CreateMarket() {
   });
   const [creatorFeeBpsStr, setCreatorFeeBpsStr] = useState('50');
   const [marketTitle, setMarketTitle] = useState('');
+  const [creatorDisplayName, setCreatorDisplayName] = useState('');
+  const [detailsText, setDetailsText] = useState('');
   /** Empty string = uncategorized on-chain. Otherwise base58 category PDA. */
   const [categoryPubkey, setCategoryPubkey] = useState('');
   const [chainCategories, setChainCategories] = useState<ChainMarketCategory[]>(
@@ -65,6 +70,10 @@ export default function CreateMarket() {
     import.meta.env.VITE_COLLATERAL_MINT ?? ''
   );
   const [extraResolvers, setExtraResolvers] = useState('');
+  /** Complete-set (SPL tokens) vs pari-mutuel ledger pool. */
+  const [marketMode, setMarketMode] = useState<'completeSet' | 'parimutuel'>(
+    'completeSet'
+  );
 
   const updateOutcomeLabels = (n: number) => {
     setOutcomeCount(n);
@@ -224,11 +233,12 @@ export default function CreateMarket() {
         resolutionThreshold: rt,
         closeAt,
         creatorFeeBps: fee,
-        platformFeeBps: 0,
+        depositPlatformFeeBps: 0,
         collateralMint,
         resolverPubkeys,
         title,
         marketCategory: catPk,
+        marketType: marketMode === 'parimutuel' ? 'parimutuel' : 'completeSet',
       });
 
       registerMarket({
@@ -238,8 +248,11 @@ export default function CreateMarket() {
         title,
         category: categoryLabelForRegistry,
         label: outcomeLabelStr,
+        creatorDisplayName: creatorDisplayName.trim() || undefined,
+        detailsText: detailsText.trim() || undefined,
       });
 
+      toast.success('Market created.');
       navigate(`/market/${marketPda.toBase58()}`);
     } catch (err: unknown) {
       let message =
@@ -258,6 +271,7 @@ export default function CreateMarket() {
         }
       }
       setError(message);
+      toast.error(message);
       try {
         if (wallet.publicKey) {
           const b = await connection.getBalance(wallet.publicKey);
@@ -286,7 +300,8 @@ export default function CreateMarket() {
         Create market
       </h1>
       <p className="text-outline font-medium">
-        Creates the market account, resolver accounts, and outcome mints (three
+        Creates the market account and resolver accounts. Complete-set markets add
+        outcome mints; pari-mutuel markets add a pool account instead (three
         transactions).
       </p>
 
@@ -330,6 +345,30 @@ export default function CreateMarket() {
         </div>
         <div>
           <label className="block text-sm font-medium text-on-surface">
+            Creator display name <span className="text-outline font-normal">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={creatorDisplayName}
+            onChange={(e) => setCreatorDisplayName(e.target.value)}
+            placeholder="Shown on cards and info page (local only)"
+            className="input mt-1"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-surface">
+            Extended description <span className="text-outline font-normal">(optional)</span>
+          </label>
+          <textarea
+            value={detailsText}
+            onChange={(e) => setDetailsText(e.target.value)}
+            placeholder="Rules, resolution sources, links — stored in this browser only"
+            className="input mt-1 min-h-[100px] text-sm"
+            rows={4}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-surface">
             Category
           </label>
           <select
@@ -347,6 +386,36 @@ export default function CreateMarket() {
           <p className="mt-1 text-xs text-outline">
             On-chain category PDAs created on the Platform page. Optional local label
             is saved in this browser for markets in your registry.
+          </p>
+        </div>
+        <div>
+          <span className="block text-sm font-medium text-on-surface">
+            Market mechanics
+          </span>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:gap-6">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-on-surface-variant">
+              <input
+                type="radio"
+                name="marketMode"
+                checked={marketMode === 'completeSet'}
+                onChange={() => setMarketMode('completeSet')}
+                className="h-4 w-4"
+              />
+              Complete-set (outcome tokens — mint/redeem full set)
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-on-surface-variant">
+              <input
+                type="radio"
+                name="marketMode"
+                checked={marketMode === 'parimutuel'}
+                onChange={() => setMarketMode('parimutuel')}
+                className="h-4 w-4"
+              />
+              Pari-mutuel (stake on one outcome; pro-rata pool payout)
+            </label>
+          </div>
+          <p className="mt-1 text-xs text-outline">
+            Pari-mutuel uses on-chain pool accounting only (no SPL outcome mints).
           </p>
         </div>
         <div>
@@ -487,7 +556,12 @@ export default function CreateMarket() {
         </div>
         <div>
           <label className="block text-sm font-medium text-on-surface">
-            Creator fee (basis points, 0–10000)
+            Creator fee (basis points, 0–10000){' '}
+            {feeBpsParsed !== null && feeBpsParsed >= 0 && feeBpsParsed <= 10000 && (
+              <span className="font-normal text-outline">
+                ({formatBpsAsPercent(feeBpsParsed)})
+              </span>
+            )}
           </label>
           <input
             type="text"

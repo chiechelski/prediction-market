@@ -5,6 +5,7 @@ const anchor_1 = require("@coral-xyz/anchor");
 const web3_js_1 = require("@solana/web3.js");
 const spl_token_1 = require("@solana/spl-token");
 const pda_1 = require("./pda");
+const types_1 = require("./types");
 class PredictionMarketClient {
     constructor(program) {
         this.program = program;
@@ -22,7 +23,7 @@ class PredictionMarketClient {
      */
     async initializeConfig(params, opts) {
         return this.program.methods
-            .initializeConfig(params.secondaryAuthority, params.platformFeeBps, params.platformTreasuryWallet, params.platformFeeLamports)
+            .initializeConfig(params.secondaryAuthority, params.depositPlatformFeeBps, params.platformTreasuryWallet, params.platformFeeLamports, params.parimutuelPenaltyProtocolShareBps, params.parimutuelWithdrawPlatformFeeBps)
             .accounts({
             globalConfig: this.globalConfig,
             authority: this.walletKey,
@@ -37,7 +38,7 @@ class PredictionMarketClient {
      */
     async updateConfig(params, opts) {
         return this.program.methods
-            .updateConfig(params.secondaryAuthority, params.platformFeeBps, params.platformTreasuryWallet, params.platformFeeLamports)
+            .updateConfig(params.secondaryAuthority, params.depositPlatformFeeBps, params.platformTreasuryWallet, params.platformFeeLamports, params.parimutuelPenaltyProtocolShareBps, params.parimutuelWithdrawPlatformFeeBps)
             .accounts({
             globalConfig: this.globalConfig,
             authority: this.walletKey,
@@ -88,9 +89,10 @@ class PredictionMarketClient {
             resolutionThreshold: params.resolutionThreshold,
             closeAt: params.closeAt,
             creatorFeeBps: params.creatorFeeBps,
-            platformFeeBps: params.platformFeeBps,
+            depositPlatformFeeBps: params.depositPlatformFeeBps,
             numResolvers: params.numResolvers,
             title: params.title,
+            marketType: (0, types_1.toMarketTypeIx)(params.marketType),
         })
             .accounts({
             payer: this.walletKey,
@@ -171,8 +173,131 @@ class PredictionMarketClient {
             resolverPubkeys,
             numResolvers: params.numResolvers,
         }, opts);
-        await this.initializeMarketMints(marketPda, params.marketId, opts);
+        if (params.marketType === 'parimutuel') {
+            const gc = await this.fetchGlobalConfig();
+            const pi = params.parimutuelInit ?? {};
+            const penaltySurplusCreatorShareBps = pi.penaltySurplusCreatorShareBps ??
+                10000 - gc.parimutuelPenaltyProtocolShareBps;
+            await this.initializeParimutuelState(marketPda, {
+                marketId: params.marketId,
+                earlyWithdrawPenaltyBps: pi.earlyWithdrawPenaltyBps ?? 500,
+                penaltyKeptInPoolBps: pi.penaltyKeptInPoolBps ?? 8000,
+                penaltySurplusCreatorShareBps,
+            }, opts);
+        }
+        else {
+            await this.initializeMarketMints(marketPda, params.marketId, opts);
+        }
         return marketPda;
+    }
+    /** Pari-mutuel pool + penalty params (step after resolvers, replaces mint init). */
+    async initializeParimutuelState(marketPda, params, opts) {
+        const parimutuelState = (0, pda_1.deriveParimutuelState)(this.program.programId, marketPda);
+        return this.program.methods
+            .initializeParimutuelState({
+            marketId: params.marketId,
+            earlyWithdrawPenaltyBps: params.earlyWithdrawPenaltyBps,
+            penaltyKeptInPoolBps: params.penaltyKeptInPoolBps,
+            penaltySurplusCreatorShareBps: params.penaltySurplusCreatorShareBps,
+        })
+            .accounts({
+            payer: this.walletKey,
+            market: marketPda,
+            globalConfig: this.globalConfig,
+            parimutuelState,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .rpc(opts ?? { skipPreflight: true });
+    }
+    async parimutuelStake(marketPda, params, opts) {
+        const parimutuelState = (0, pda_1.deriveParimutuelState)(this.program.programId, marketPda);
+        const market = await this.fetchMarket(marketPda);
+        const globalConfig = await this.fetchGlobalConfig();
+        const position = (0, pda_1.deriveParimutuelPosition)(this.program.programId, marketPda, this.walletKey, params.outcomeIndex);
+        const vaultPda = (0, pda_1.deriveVault)(this.program.programId, marketPda);
+        const allowedMint = (0, pda_1.deriveAllowedMint)(this.program.programId, market.collateralMint);
+        const userCollateral = (0, spl_token_1.getAssociatedTokenAddressSync)(market.collateralMint, this.walletKey, false, spl_token_1.TOKEN_PROGRAM_ID, spl_token_1.ASSOCIATED_TOKEN_PROGRAM_ID);
+        const platformTreasuryAta = (0, spl_token_1.getAssociatedTokenAddressSync)(market.collateralMint, globalConfig.platformTreasury, false, spl_token_1.TOKEN_PROGRAM_ID, spl_token_1.ASSOCIATED_TOKEN_PROGRAM_ID);
+        return this.program.methods
+            .parimutuelStake({
+            marketId: params.marketId,
+            outcomeIndex: params.outcomeIndex,
+            amount: params.amount,
+        })
+            .accounts({
+            user: this.walletKey,
+            market: marketPda,
+            parimutuelState,
+            position,
+            vault: vaultPda,
+            collateralMint: market.collateralMint,
+            userCollateralAccount: userCollateral,
+            creatorFeeAccount: market.creatorFeeAccount,
+            globalConfig: this.globalConfig,
+            platformTreasuryWallet: globalConfig.platformTreasury,
+            platformTreasuryAta,
+            allowedMint,
+            collateralTokenProgram: spl_token_1.TOKEN_PROGRAM_ID,
+            tokenProgram: spl_token_1.TOKEN_PROGRAM_ID,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .rpc(opts ?? { skipPreflight: true });
+    }
+    async parimutuelWithdraw(marketPda, params, opts) {
+        const parimutuelState = (0, pda_1.deriveParimutuelState)(this.program.programId, marketPda);
+        const market = await this.fetchMarket(marketPda);
+        const position = (0, pda_1.deriveParimutuelPosition)(this.program.programId, marketPda, this.walletKey, params.outcomeIndex);
+        const vaultPda = (0, pda_1.deriveVault)(this.program.programId, marketPda);
+        const globalConfig = await this.fetchGlobalConfig();
+        const userCollateral = (0, spl_token_1.getAssociatedTokenAddressSync)(market.collateralMint, this.walletKey, false, spl_token_1.TOKEN_PROGRAM_ID, spl_token_1.ASSOCIATED_TOKEN_PROGRAM_ID);
+        const platformTreasuryAta = (0, spl_token_1.getAssociatedTokenAddressSync)(market.collateralMint, globalConfig.platformTreasury, false, spl_token_1.TOKEN_PROGRAM_ID, spl_token_1.ASSOCIATED_TOKEN_PROGRAM_ID);
+        return this.program.methods
+            .parimutuelWithdraw({
+            marketId: params.marketId,
+            outcomeIndex: params.outcomeIndex,
+            amount: params.amount,
+        })
+            .accounts({
+            user: this.walletKey,
+            market: marketPda,
+            creatorFeeAccount: market.creatorFeeAccount,
+            parimutuelState,
+            position,
+            vault: vaultPda,
+            collateralMint: market.collateralMint,
+            userCollateralAccount: userCollateral,
+            globalConfig: this.globalConfig,
+            platformTreasuryWallet: globalConfig.platformTreasury,
+            platformTreasuryAta,
+            collateralTokenProgram: spl_token_1.TOKEN_PROGRAM_ID,
+            tokenProgram: spl_token_1.TOKEN_PROGRAM_ID,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .rpc(opts ?? { skipPreflight: true });
+    }
+    async parimutuelClaim(marketPda, params, opts) {
+        const parimutuelState = (0, pda_1.deriveParimutuelState)(this.program.programId, marketPda);
+        const market = await this.fetchMarket(marketPda);
+        const position = (0, pda_1.deriveParimutuelPosition)(this.program.programId, marketPda, this.walletKey, params.outcomeIndex);
+        const vaultPda = (0, pda_1.deriveVault)(this.program.programId, marketPda);
+        const userCollateral = (0, spl_token_1.getAssociatedTokenAddressSync)(market.collateralMint, this.walletKey, false, spl_token_1.TOKEN_PROGRAM_ID, spl_token_1.ASSOCIATED_TOKEN_PROGRAM_ID);
+        return this.program.methods
+            .parimutuelClaim({
+            marketId: params.marketId,
+            outcomeIndex: params.outcomeIndex,
+        })
+            .accounts({
+            user: this.walletKey,
+            market: marketPda,
+            parimutuelState,
+            position,
+            vault: vaultPda,
+            collateralMint: market.collateralMint,
+            userCollateralAccount: userCollateral,
+            collateralTokenProgram: spl_token_1.TOKEN_PROGRAM_ID,
+            tokenProgram: spl_token_1.TOKEN_PROGRAM_ID,
+        })
+            .rpc(opts ?? { skipPreflight: true });
     }
     // ─── Trading ────────────────────────────────────────────────────────────────
     /**

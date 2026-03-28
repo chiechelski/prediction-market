@@ -91,4 +91,22 @@ pub enum PredictionMarketError {
 
     #[msg("category_id must match global_config.next_category_id")]
     InvalidCategoryId,
+
+    #[msg("This instruction requires a different market type")]
+    WrongMarketType,
+
+    #[msg("Parimutuel penalty or split parameters are invalid")]
+    InvalidParimutuelPenalty,
+
+    #[msg("Parimutuel state not initialized for this market")]
+    ParimutuelNotInitialized,
+
+    #[msg("Stake or withdrawal amount exceeds balance")]
+    ParimutuelInsufficientStake,
+
+    #[msg("Winning outcome pool is empty — cannot claim")]
+    ParimutuelEmptyWinningPool,
+
+    #[msg("Position already claimed")]
+    ParimutuelAlreadyClaimed,
 }

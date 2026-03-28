@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
 import {
   listRegisteredMarkets,
   REGISTRY_CHANGED_EVENT,
@@ -14,16 +15,34 @@ import {
   categoryNameMap,
   getMarketStatus,
   formatTimeLeft,
+  marketMatchesSector,
+  inferMarketSectorSlug,
   type ChainMarketRow,
   type ChainMarketCategory,
   type DashboardMarketEntry,
   type MarketStatus,
 } from '@/lib/marketDiscovery';
-import { findResolverSlot } from '@/lib/marketActions';
+import {
+  findResolverSlot,
+  fetchUserProfileReadOnly,
+  type UserProfileData,
+} from '@/lib/marketActions';
+import { resolveCreatorDisplayName, shortCreatorAddress } from '@/lib/creatorIdentity';
 import { UNCATEGORIZED_PUBKEY_STR } from '@/lib/marketCategories';
+import MarketSectorBanner from '@/components/MarketSectorBanner';
 
 type Tab = 'markets' | 'creator' | 'judges';
 type StatusFilter = 'all' | 'open' | 'closing-soon' | 'closed' | 'resolved' | 'voided';
+type MarketKindFilter = 'all' | 'completeSet' | 'parimutuel';
+type SortBy = 'newest' | 'closing' | 'title';
+
+function marketTitleForSort(m: DashboardMarketEntry): string {
+  const t = m.title?.trim();
+  if (t) return t;
+  const l = m.label?.trim();
+  if (l) return l;
+  return m.marketPda;
+}
 
 // Parse "Yes / No / Maybe" label → ["Yes", "No", "Maybe"]
 function parseOutcomeLabels(label: string, count: number): string[] {
@@ -87,26 +106,54 @@ function marketDisplayTitle(m: DashboardMarketEntry): string {
   return 'Market';
 }
 
-function MarketCard({ m }: { m: DashboardMarketEntry }) {
+function MarketCard({
+  m,
+  creatorProfile,
+}: {
+  m: DashboardMarketEntry;
+  /** `undefined` = still loading on-chain profile for this creator */
+  creatorProfile: UserProfileData | null | undefined;
+}) {
+  const navigate = useNavigate();
   const status = getMarketStatus(m);
   const outcomes = parseOutcomeLabels(m.label, m.outcomeCount ?? 2);
   const winIdx = m.resolvedOutcomeIndex ?? null;
   const isResolved = status === 'resolved';
   const isActive = status === 'open' || status === 'closing-soon';
+  const creatorLabel = resolveCreatorDisplayName(
+    m.creator,
+    creatorProfile,
+    m.creatorDisplayName
+  );
+  const pubkeyShort = shortCreatorAddress(m.creator);
+  const showWalletLine = creatorLabel !== pubkeyShort;
 
   const cardBg =
     isResolved || status === 'voided' || status === 'closed'
       ? 'bg-surface-container/50 grayscale-[0.2]'
       : 'bg-surface-container hover:bg-surface-container-low';
 
+  const goMarket = () => navigate(`/market/${m.marketPda}`);
+
   return (
-    <Link
-      to={`/market/${m.marketPda}`}
-      className={`group ${cardBg} border border-outline-variant/5 rounded-2xl p-6 flex flex-col transition-all duration-300 relative overflow-hidden`}
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={goMarket}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          goMarket();
+        }
+      }}
+      className={`group ${cardBg} border border-outline-variant/5 rounded-2xl flex flex-col transition-all duration-300 relative overflow-hidden cursor-pointer`}
     >
+      <MarketSectorBanner category={m.category} variant="card" />
+
+      <div className="p-6 flex flex-col flex-1 min-h-0">
       {/* Ambient glow for active markets */}
       {isActive && (
-        <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/5 blur-[40px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+        <div className="absolute top-[72px] right-4 w-32 h-32 bg-secondary/5 blur-[40px] rounded-full pointer-events-none z-[1]" />
       )}
 
       {/* Header row */}
@@ -141,6 +188,11 @@ function MarketCard({ m }: { m: DashboardMarketEntry }) {
         {m.category && (
           <span className="inline-flex w-fit items-center rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-primary">
             {m.category}
+          </span>
+        )}
+        {m.marketKind === 'parimutuel' && (
+          <span className="inline-flex w-fit items-center rounded-md bg-tertiary/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-tertiary">
+            Pari-mutuel pool
           </span>
         )}
         <h3
@@ -201,22 +253,58 @@ function MarketCard({ m }: { m: DashboardMarketEntry }) {
       </div>
 
       {/* Footer row */}
-      <div className="flex items-center justify-between pt-4 border-t border-outline-variant/10 relative z-10">
-        <div className="flex items-center gap-2">
-          <div className={`w-6 h-6 rounded-full ${isActive ? 'bg-primary/20' : 'bg-primary/10'} flex items-center justify-center`}>
-            <span className={`material-symbols-outlined text-[12px] ${isActive ? 'text-primary' : 'text-primary/50'}`}>
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-outline-variant/10 relative z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Link
+          to={`/markets/creator/${encodeURIComponent(m.creator)}`}
+          onClick={(e) => e.stopPropagation()}
+          className="flex min-w-0 items-center gap-3 rounded-xl -m-1 p-1 text-left transition-colors hover:bg-surface-container-high/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          title="View all markets by this creator"
+        >
+          <div className={`relative shrink-0 w-9 h-9 rounded-full ${isActive ? 'bg-primary/25 ring-2 ring-primary/20' : 'bg-primary/15'} flex items-center justify-center`}>
+            <span className={`material-symbols-outlined text-[18px] ${isActive ? 'text-primary' : 'text-primary/60'}`}>
               person
             </span>
+            {creatorProfile?.verified && (
+              <span
+                className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-secondary text-surface-dim"
+                title="Verified account"
+              >
+                <span
+                  className="material-symbols-outlined text-[11px] leading-none"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  verified_user
+                </span>
+              </span>
+            )}
           </div>
-          <span className={`text-[11px] font-medium ${isActive ? 'text-outline' : 'text-outline/50'}`}>
-            {shortPk(m.creator)}
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-widest text-outline/80">
+              Market creator
+            </p>
+            <p
+              className={`text-sm font-semibold truncate ${isActive ? 'text-on-surface' : 'text-on-surface/70'}`}
+            >
+              {creatorLabel}
+            </p>
+            {showWalletLine && (
+              <p className={`font-mono text-[10px] truncate ${isActive ? 'text-outline/70' : 'text-outline/40'}`}>
+                {pubkeyShort}
+              </p>
+            )}
+          </div>
+        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-[10px] text-outline/40 truncate max-w-[5rem] hidden sm:inline" title={m.marketPda}>
+            {shortPk(m.marketPda)}
           </span>
         </div>
-        <span className="font-mono text-[10px] text-outline/40 truncate max-w-[8rem]">
-          {shortPk(m.marketPda)}
-        </span>
       </div>
-    </Link>
+      </div>
+    </div>
   );
 }
 
@@ -245,9 +333,52 @@ function SkeletonCard() {
 }
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
-export default function Dashboard({ tab }: { tab: Tab }) {
+const SECTOR_BROWSE: { sector: string; label: string }[] = [
+  { sector: 'all', label: 'All Markets' },
+  { sector: 'sports', label: 'Sports' },
+  { sector: 'crypto', label: 'Crypto' },
+  { sector: 'politics', label: 'Politics' },
+  { sector: 'economics', label: 'Economics' },
+];
+
+const STATUS_FILTER_OPTIONS: { id: StatusFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'open', label: 'Open' },
+  { id: 'closing-soon', label: 'Closing Soon' },
+  { id: 'closed', label: 'Closed' },
+  { id: 'resolved', label: 'Resolved' },
+  { id: 'voided', label: 'Voided' },
+];
+
+function categoryChipActive(
+  chip: 'all' | '__uncat__' | string,
+  categoryFilter: 'all' | '__uncat__' | string,
+  browseSector: string
+): boolean {
+  if (chip === 'all') {
+    return categoryFilter === 'all' && browseSector === 'all';
+  }
+  if (chip === '__uncat__') {
+    return categoryFilter === '__uncat__' && browseSector === 'all';
+  }
+  return (
+    categoryFilter === chip ||
+    (browseSector !== 'all' && marketMatchesSector(chip, browseSector))
+  );
+}
+
+export default function Dashboard({
+  tab,
+  creatorPubkey,
+}: {
+  tab: Tab;
+  /** When set, show only markets from this wallet (creator profile view). */
+  creatorPubkey?: string;
+}) {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const browseSector = searchParams.get('sector') ?? 'all';
   const [all, setAll] = useState<RegisteredMarket[]>([]);
   const [chainRows, setChainRows] = useState<ChainMarketRow[] | null>(null);
   const [chainCategoryLabels, setChainCategoryLabels] = useState<
@@ -261,18 +392,22 @@ export default function Dashboard({ tab }: { tab: Tab }) {
   const [judgeList, setJudgeList] = useState<DashboardMarketEntry[] | null>(null);
   const [judgesLoading, setJudgesLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [marketKindFilter, setMarketKindFilter] = useState<MarketKindFilter>('all');
   /** `'__uncat__'` = no category label; otherwise exact `m.category` string. */
   const [categoryFilter, setCategoryFilter] = useState<'all' | '__uncat__' | string>(
     'all'
   );
   const [search, setSearch] = useState('');
-  const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef<HTMLDivElement>(null);
+  const [sortBy, setSortBy] = useState<SortBy>('newest');
+  const [toolbarMenu, setToolbarMenu] = useState<
+    null | 'category' | 'marketType' | 'sort' | 'status'
+  >(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
-        setFilterOpen(false);
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+        setToolbarMenu(null);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -330,6 +465,42 @@ export default function Dashboard({ tab }: { tab: Tab }) {
     [all, chainRows, chainCategoryLabels]
   );
 
+  const creatorKeys = useMemo(() => {
+    const uniq = new Set(mergedMarkets.map((m) => m.creator));
+    return [...uniq].sort().join('\n');
+  }, [mergedMarkets]);
+
+  const [profilesByCreator, setProfilesByCreator] = useState<
+    Record<string, UserProfileData | null>
+  >({});
+
+  useEffect(() => {
+    const creators = creatorKeys ? creatorKeys.split('\n').filter(Boolean) : [];
+    if (creators.length === 0) {
+      setProfilesByCreator({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        creators.map(async (c) => {
+          try {
+            const p = await fetchUserProfileReadOnly(connection, new PublicKey(c));
+            return [c, p] as const;
+          } catch {
+            return [c, null] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByCreator(Object.fromEntries(entries));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, creatorKeys]);
+
   useEffect(() => {
     if (tab !== 'judges' || !wallet.publicKey || chainRows === null) {
       setJudgeList(null);
@@ -363,6 +534,7 @@ export default function Dashboard({ tab }: { tab: Tab }) {
           resolvedOutcomeIndex: row.resolvedOutcomeIndex,
           voided: row.voided,
           resolutionThreshold: row.resolutionThreshold,
+          marketKind: row.marketKind,
         });
       }
       matches.sort((a, b) => b.createdAt - a.createdAt || a.marketPda.localeCompare(b.marketPda));
@@ -373,8 +545,8 @@ export default function Dashboard({ tab }: { tab: Tab }) {
 
   const tabs: { id: Tab; label: string; to: string }[] = [
     { id: 'markets', label: 'All markets', to: '/markets' },
-    { id: 'creator', label: 'Creator', to: '/creator' },
-    { id: 'judges', label: 'Judge', to: '/judges' },
+    { id: 'creator', label: 'My markets', to: '/creator' },
+    { id: 'judges', label: 'Your resolutions', to: '/judges' },
   ];
 
   const creatorMarkets =
@@ -382,15 +554,32 @@ export default function Dashboard({ tab }: { tab: Tab }) {
       ? mergedMarkets.filter((m) => m.creator === wallet.publicKey!.toBase58())
       : [];
 
-  const baseList: DashboardMarketEntry[] =
-    tab === 'markets' ? mergedMarkets : tab === 'creator' ? creatorMarkets : judgeList ?? [];
+  const baseList: DashboardMarketEntry[] = creatorPubkey
+    ? mergedMarkets.filter((m) => m.creator === creatorPubkey)
+    : tab === 'markets'
+      ? mergedMarkets
+      : tab === 'creator'
+        ? creatorMarkets
+        : judgeList ?? [];
+
+  const creatorProfileDisplayName = useMemo(() => {
+    if (!creatorPubkey) return null;
+    const fromChain = profilesByCreator[creatorPubkey]?.displayName?.trim();
+    if (fromChain) return fromChain;
+    const named = mergedMarkets.find(
+      (m) => m.creator === creatorPubkey && m.creatorDisplayName?.trim()
+    );
+    return named?.creatorDisplayName?.trim() ?? null;
+  }, [creatorPubkey, mergedMarkets, profilesByCreator]);
 
   const displayList = useMemo(() => {
     let list = baseList;
     if (statusFilter !== 'all') {
       list = list.filter((m) => getMarketStatus(m) === statusFilter);
     }
-    if (categoryFilter === '__uncat__') {
+    if ((tab === 'markets' || creatorPubkey) && browseSector !== 'all') {
+      list = list.filter((m) => marketMatchesSector(m.category, browseSector));
+    } else if (categoryFilter === '__uncat__') {
       list = list.filter((m) => !m.category);
     } else if (categoryFilter !== 'all') {
       list = list.filter((m) => m.category === categoryFilter);
@@ -402,12 +591,57 @@ export default function Dashboard({ tab }: { tab: Tab }) {
           m.label.toLowerCase().includes(q) ||
           (m.title?.toLowerCase().includes(q) ?? false) ||
           (m.category?.toLowerCase().includes(q) ?? false) ||
+          (m.creatorDisplayName?.toLowerCase().includes(q) ?? false) ||
+          (profilesByCreator[m.creator]?.displayName?.toLowerCase().includes(q) ??
+            false) ||
           m.marketPda.toLowerCase().includes(q) ||
           m.creator.toLowerCase().includes(q)
       );
     }
-    return list;
-  }, [baseList, statusFilter, categoryFilter, search]);
+    if (marketKindFilter !== 'all') {
+      list = list.filter((m) => {
+        const k = m.marketKind ?? 'completeSet';
+        return k === marketKindFilter;
+      });
+    }
+    const next = [...list];
+    switch (sortBy) {
+      case 'closing':
+        next.sort((a, b) => {
+          const ca = a.closeAt ?? 0;
+          const cb = b.closeAt ?? 0;
+          if (ca !== cb) return ca - cb;
+          return a.marketPda.localeCompare(b.marketPda);
+        });
+        break;
+      case 'title':
+        next.sort((a, b) =>
+          marketTitleForSort(a).localeCompare(marketTitleForSort(b), undefined, {
+            sensitivity: 'base',
+          })
+        );
+        break;
+      case 'newest':
+      default:
+        next.sort(
+          (a, b) =>
+            b.createdAt - a.createdAt || a.marketPda.localeCompare(b.marketPda)
+        );
+        break;
+    }
+    return next;
+  }, [
+    baseList,
+    statusFilter,
+    categoryFilter,
+    search,
+    marketKindFilter,
+    tab,
+    browseSector,
+    sortBy,
+    creatorPubkey,
+    profilesByCreator,
+  ]);
 
   const categoryChipNames = useMemo(() => {
     const names = chainCategories
@@ -417,153 +651,432 @@ export default function Dashboard({ tab }: { tab: Tab }) {
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [chainCategories]);
 
-  const listLoading = tab === 'judges' ? judgesLoading : chainLoading;
+  const categoryToolbarLabel = useMemo(() => {
+    if ((tab === 'markets' || creatorPubkey) && browseSector !== 'all') {
+      return (
+        SECTOR_BROWSE.find((s) => s.sector === browseSector)?.label ?? 'Browse'
+      );
+    }
+    if (categoryFilter === '__uncat__') return 'Uncategorized';
+    if (categoryFilter !== 'all') return categoryFilter;
+    return 'Category';
+  }, [tab, browseSector, categoryFilter, creatorPubkey]);
 
-  const statusFilters: { id: StatusFilter; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'open', label: 'Open' },
-    { id: 'closing-soon', label: 'Closing Soon' },
-    { id: 'closed', label: 'Closed' },
-    { id: 'resolved', label: 'Resolved' },
-    { id: 'voided', label: 'Voided' },
-  ];
+  const marketTypeToolbarLabel =
+    marketKindFilter === 'completeSet'
+      ? 'Complete-set'
+      : marketKindFilter === 'parimutuel'
+        ? 'Pari-mutuel'
+        : 'Market type';
 
-  const pageTitle =
-    tab === 'markets' ? 'Global Markets' :
-    tab === 'creator' ? 'Your Markets' :
-    'Markets You Resolve';
+  const sortToolbarLabel =
+    sortBy === 'closing'
+      ? 'Closing soon'
+      : sortBy === 'title'
+        ? 'Title A–Z'
+        : 'Sort: newest';
 
-  const pageSubtitle =
-    tab === 'markets' ? 'Verified prediction markets on the Solana blockchain.' :
-    tab === 'creator' ? 'Markets created by your connected wallet.' :
-    'On-chain markets where your wallet is assigned as a resolver.';
+  const statusToolbarLabel =
+    STATUS_FILTER_OPTIONS.find((f) => f.id === statusFilter)?.label ?? 'Status';
+
+  const filtersAreNonDefault =
+    statusFilter !== 'all' ||
+    marketKindFilter !== 'all' ||
+    categoryFilter !== 'all' ||
+    browseSector !== 'all' ||
+    sortBy !== 'newest' ||
+    search.trim().length > 0;
+
+  const resetFilters = () => {
+    setStatusFilter('all');
+    setMarketKindFilter('all');
+    setCategoryFilter('all');
+    setSortBy('newest');
+    setSearch('');
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('sector');
+      return next;
+    });
+    setToolbarMenu(null);
+  };
+
+  const listLoading = creatorPubkey ? chainLoading : tab === 'judges' ? judgesLoading : chainLoading;
+
+  const pageTitle = creatorPubkey
+    ? creatorProfileDisplayName ?? `Creator · ${shortPk(creatorPubkey)}`
+    : tab === 'markets'
+      ? 'Global Markets'
+      : tab === 'creator'
+        ? 'Your Markets'
+        : 'Markets You Resolve';
+
+  const pageSubtitle = creatorPubkey
+    ? creatorProfileDisplayName
+      ? `Wallet ${shortPk(creatorPubkey)} · markets discovered on-chain and in this browser.`
+      : `All markets from wallet ${creatorPubkey.slice(0, 8)}…${creatorPubkey.slice(-6)} (on-chain + local registry).`
+    : tab === 'markets'
+      ? 'Verified prediction markets on the Solana blockchain.'
+      : tab === 'creator'
+        ? 'Markets created by your connected wallet.'
+        : 'On-chain markets where your wallet is assigned as a resolver.';
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface-dim px-4 pt-8 pb-12 md:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-7xl">
 
-        {/* ── Page header + filter tabs ─────────────────────────────── */}
-        <div className="flex flex-col gap-5 mb-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h1 className="font-headline text-3xl font-extrabold tracking-tight text-on-surface italic mb-1">
-                {pageTitle}
-              </h1>
-              <p className="text-outline font-medium">{pageSubtitle}</p>
-            </div>
+        {/* ── Page header + compact filter toolbar ───────────────────── */}
+        <div className="mb-8 flex flex-col gap-4">
+          {creatorPubkey && (
+            <nav className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-widest text-outline">
+              <Link to="/markets" className="transition-colors hover:text-primary">
+                Markets
+              </Link>
+              <span className="material-symbols-outlined text-[12px]">chevron_right</span>
+              <span className="text-on-surface-variant">Creator</span>
+            </nav>
+          )}
+          <div>
+            <h1 className="font-headline mb-1 text-3xl font-extrabold tracking-tight text-on-surface italic">
+              {pageTitle}
+            </h1>
+            <p className="font-medium text-outline">{pageSubtitle}</p>
+          </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Category filter */}
-              <div className="inline-flex flex-wrap gap-1 rounded-lg bg-surface-container-highest p-1">
-                <button
-                  type="button"
-                  onClick={() => setCategoryFilter('all')}
-                  className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-colors ${
-                    categoryFilter === 'all'
-                      ? 'bg-surface-container text-on-surface'
-                      : 'text-outline hover:text-on-surface'
-                  }`}
-                >
-                  All categories
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCategoryFilter('__uncat__')}
-                  className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-colors ${
-                    categoryFilter === '__uncat__'
-                      ? 'bg-surface-container text-on-surface'
-                      : 'text-outline hover:text-on-surface'
-                  }`}
-                >
-                  Uncategorized
-                </button>
-                {categoryChipNames.map((c) => (
+          <div
+            ref={toolbarRef}
+            className="flex flex-col gap-3 rounded-2xl border border-outline-variant/15 bg-surface-container-low/40 p-3 sm:p-4"
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Category */}
+                <div className="relative">
                   <button
-                    key={c}
                     type="button"
-                    onClick={() => setCategoryFilter(c)}
-                    className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-colors ${
-                      categoryFilter === c
-                        ? 'bg-surface-container text-on-surface'
-                        : 'text-outline hover:text-on-surface'
+                    onClick={() =>
+                      setToolbarMenu((m) => (m === 'category' ? null : 'category'))
+                    }
+                    className={`inline-flex h-10 max-w-[11rem] items-center gap-1.5 rounded-xl border px-3.5 text-left text-sm font-medium transition-colors sm:max-w-[14rem] ${
+                      toolbarMenu === 'category'
+                        ? 'border-primary/40 bg-surface-container-high text-on-surface ring-1 ring-primary/25'
+                        : 'border-outline-variant/25 bg-surface-container-highest text-on-surface hover:border-outline-variant/40'
                     }`}
                   >
-                    {c}
+                    <span className="truncate">{categoryToolbarLabel}</span>
+                    <span className="material-symbols-outlined ml-auto shrink-0 text-[18px] text-outline">
+                      expand_more
+                    </span>
                   </button>
-                ))}
-              </div>
-              {/* Status filter dropdown */}
-              <div ref={filterRef} className="relative">
-                <button
-                  onClick={() => setFilterOpen(v => !v)}
-                  className="inline-flex items-center gap-2 h-9 rounded-lg bg-surface-container-highest px-4 text-xs font-bold text-primary hover:bg-surface-variant transition-colors"
-                >
-                  <span className="uppercase tracking-wider">
-                    {statusFilters.find(f => f.id === statusFilter)?.label ?? 'All'}
-                  </span>
-                  <svg
-                    className={`h-4 w-4 text-outline transition-transform ${filterOpen ? 'rotate-180' : ''}`}
-                    viewBox="0 0 20 20" fill="currentColor"
-                  >
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </button>
-                {filterOpen && (
-                  <div className="absolute right-0 top-full mt-2 z-50 w-44 rounded-xl border border-outline-variant/20 bg-surface-container-low py-1.5 shadow-xl shadow-black/40">
-                    {statusFilters.map(({ id, label }) => (
+                  {toolbarMenu === 'category' && (
+                    <div className="absolute left-0 top-full z-50 mt-1 max-h-[min(70vh,22rem)] w-[min(calc(100vw-2rem),16rem)] overflow-y-auto rounded-xl border border-outline-variant/20 bg-surface-container-low py-1 shadow-xl shadow-black/40">
                       <button
-                        key={id}
-                        onClick={() => { setStatusFilter(id); setFilterOpen(false); }}
-                        className={`w-full flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
-                          statusFilter === id
-                            ? 'text-primary bg-surface-container-highest'
-                            : 'text-outline hover:text-on-surface hover:bg-surface-container-highest'
+                        type="button"
+                        onClick={() => {
+                          setCategoryFilter('all');
+                          setSearchParams((prev) => {
+                            const next = new URLSearchParams(prev);
+                            next.delete('sector');
+                            return next;
+                          });
+                          setToolbarMenu(null);
+                        }}
+                        className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold ${
+                          categoryChipActive('all', categoryFilter, browseSector)
+                            ? 'bg-surface-container-highest text-primary'
+                            : 'text-on-surface-variant hover:bg-surface-container-highest'
                         }`}
                       >
-                        {statusFilter === id && (
-                          <span className="material-symbols-outlined text-[14px]">check</span>
-                        )}
-                        {statusFilter !== id && <span className="w-[14px]" />}
-                        {label}
+                        All categories
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCategoryFilter('__uncat__');
+                          setSearchParams((prev) => {
+                            const next = new URLSearchParams(prev);
+                            next.delete('sector');
+                            return next;
+                          });
+                          setToolbarMenu(null);
+                        }}
+                        className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold ${
+                          categoryChipActive('__uncat__', categoryFilter, browseSector)
+                            ? 'bg-surface-container-highest text-primary'
+                            : 'text-on-surface-variant hover:bg-surface-container-highest'
+                        }`}
+                      >
+                        Uncategorized
+                      </button>
+                      {tab === 'markets' && (
+                        <>
+                          <p className="px-3 pb-1 pt-2 text-[10px] font-black uppercase tracking-widest text-outline">
+                            Browse
+                          </p>
+                          {SECTOR_BROWSE.map(({ sector, label }) => (
+                            <button
+                              key={sector}
+                              type="button"
+                              onClick={() => {
+                                setCategoryFilter('all');
+                                setSearchParams((prev) => {
+                                  const next = new URLSearchParams(prev);
+                                  if (sector === 'all') next.delete('sector');
+                                  else next.set('sector', sector);
+                                  return next;
+                                });
+                                setToolbarMenu(null);
+                              }}
+                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium ${
+                                sector === 'all'
+                                  ? browseSector === 'all' &&
+                                    categoryFilter === 'all'
+                                    ? 'bg-surface-container-highest text-primary'
+                                    : 'text-on-surface-variant hover:bg-surface-container-highest'
+                                  : browseSector === sector
+                                    ? 'bg-surface-container-highest text-primary'
+                                    : 'text-on-surface-variant hover:bg-surface-container-highest'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      {categoryChipNames.length > 0 && (
+                        <>
+                          <p className="px-3 pb-1 pt-2 text-[10px] font-black uppercase tracking-widest text-outline">
+                            Categories
+                          </p>
+                          {categoryChipNames.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => {
+                                setCategoryFilter(c);
+                                const slug = inferMarketSectorSlug(c);
+                                setSearchParams((prev) => {
+                                  const next = new URLSearchParams(prev);
+                                  if (slug) next.set('sector', slug);
+                                  else next.delete('sector');
+                                  return next;
+                                });
+                                setToolbarMenu(null);
+                              }}
+                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium ${
+                                categoryChipActive(c, categoryFilter, browseSector)
+                                  ? 'bg-surface-container-highest text-primary'
+                                  : 'text-on-surface-variant hover:bg-surface-container-highest'
+                              }`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Market type */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setToolbarMenu((m) => (m === 'marketType' ? null : 'marketType'))
+                    }
+                    className={`inline-flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-medium transition-colors ${
+                      toolbarMenu === 'marketType'
+                        ? 'border-primary/40 bg-surface-container-high text-on-surface ring-1 ring-primary/25'
+                        : 'border-outline-variant/25 bg-surface-container-highest text-on-surface hover:border-outline-variant/40'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-outline">
+                      filter_list
+                    </span>
+                    <span className="hidden sm:inline">{marketTypeToolbarLabel}</span>
+                    <span className="sm:hidden">Type</span>
+                    <span className="material-symbols-outlined text-[18px] text-outline">
+                      expand_more
+                    </span>
+                  </button>
+                  {toolbarMenu === 'marketType' && (
+                    <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-xl border border-outline-variant/20 bg-surface-container-low py-1 shadow-xl shadow-black/40">
+                      {(
+                        [
+                          ['all', 'All types'],
+                          ['completeSet', 'Complete-set'],
+                          ['parimutuel', 'Pari-mutuel'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setMarketKindFilter(id);
+                            setToolbarMenu(null);
+                          }}
+                          className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold ${
+                            marketKindFilter === id
+                              ? 'bg-surface-container-highest text-primary'
+                              : 'text-on-surface-variant hover:bg-surface-container-highest'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sort */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setToolbarMenu((m) => (m === 'sort' ? null : 'sort'))
+                    }
+                    className={`inline-flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-medium transition-colors ${
+                      toolbarMenu === 'sort'
+                        ? 'border-primary/40 bg-surface-container-high text-on-surface ring-1 ring-primary/25'
+                        : 'border-outline-variant/25 bg-surface-container-highest text-on-surface hover:border-outline-variant/40'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-outline">
+                      swap_vert
+                    </span>
+                    <span className="hidden max-w-[9rem] truncate sm:inline">
+                      {sortToolbarLabel}
+                    </span>
+                    <span className="sm:hidden">Sort</span>
+                    <span className="material-symbols-outlined text-[18px] text-outline">
+                      expand_more
+                    </span>
+                  </button>
+                  {toolbarMenu === 'sort' && (
+                    <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-xl border border-outline-variant/20 bg-surface-container-low py-1 shadow-xl shadow-black/40">
+                      {(
+                        [
+                          ['newest', 'Newest first'],
+                          ['closing', 'Closing soon'],
+                          ['title', 'Title A–Z'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setSortBy(id);
+                            setToolbarMenu(null);
+                          }}
+                          className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold ${
+                            sortBy === id
+                              ? 'bg-surface-container-highest text-primary'
+                              : 'text-on-surface-variant hover:bg-surface-container-highest'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Status */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setToolbarMenu((m) => (m === 'status' ? null : 'status'))
+                    }
+                    className={`inline-flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-medium transition-colors ${
+                      toolbarMenu === 'status'
+                        ? 'border-primary/40 bg-surface-container-high text-on-surface ring-1 ring-primary/25'
+                        : 'border-outline-variant/25 bg-surface-container-highest text-on-surface hover:border-outline-variant/40'
+                    }`}
+                  >
+                    <span className="max-w-[6rem] truncate sm:max-w-none">
+                      {statusToolbarLabel}
+                    </span>
+                    <span className="material-symbols-outlined shrink-0 text-[18px] text-outline">
+                      expand_more
+                    </span>
+                  </button>
+                  {toolbarMenu === 'status' && (
+                    <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-xl border border-outline-variant/20 bg-surface-container-low py-1 shadow-xl shadow-black/40 sm:left-0 sm:right-auto">
+                      {STATUS_FILTER_OPTIONS.map(({ id, label }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter(id);
+                            setToolbarMenu(null);
+                          }}
+                          className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider ${
+                            statusFilter === id
+                              ? 'bg-surface-container-highest text-primary'
+                              : 'text-on-surface-variant hover:bg-surface-container-highest'
+                          }`}
+                        >
+                          {statusFilter === id && (
+                            <span className="material-symbols-outlined text-[14px]">check</span>
+                          )}
+                          {statusFilter !== id && <span className="w-[14px]" />}
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 lg:min-w-0 lg:flex-1 lg:justify-end">
+                <div className="relative min-w-0 flex-1 lg:max-w-md">
+                  <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[20px] text-outline">
+                    search
+                  </span>
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full rounded-xl border border-outline-variant/15 bg-surface-container-lowest py-2.5 pl-10 pr-3 text-sm text-on-surface placeholder:text-outline/50 focus:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder={creatorPubkey ? "Search this creator's markets…" : 'Search markets…'}
+                    type="search"
+                    autoComplete="off"
+                  />
+                </div>
+                {!creatorPubkey && (
+                  <div className="flex gap-1 rounded-xl border border-outline-variant/15 bg-surface-container-low p-1 sm:shrink-0">
+                    {tabs.map((t) => (
+                      <Link
+                        key={t.id}
+                        to={t.to}
+                        className={`rounded-lg px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider transition-all sm:px-4 ${
+                          tab === t.id
+                            ? 'bg-surface-container-highest text-on-surface'
+                            : 'text-outline hover:bg-surface-container-highest hover:text-on-surface'
+                        }`}
+                      >
+                        {t.label}
+                      </Link>
                     ))}
                   </div>
                 )}
               </div>
             </div>
-          </div>
 
-          {/* Search + tab row */}
-          <div className="flex flex-col lg:flex-row gap-4">
-            {/* Search */}
-            <div className="flex-1 relative">
-              <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline text-[20px]">
-                search
-              </span>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-surface-container-lowest border-none rounded-xl py-3 pl-12 pr-4 text-on-surface placeholder:text-outline/50 focus:ring-2 focus:ring-primary/30 focus:outline-none transition-all text-sm"
-                placeholder="Search markets by title, pubkey, or creator…"
-                type="text"
-              />
-            </div>
-            {/* Tab switcher */}
-            <div className="flex gap-1 bg-surface-container-low p-1.5 rounded-xl border border-outline-variant/15">
-              {tabs.map((t) => (
-                <Link
-                  key={t.id}
-                  to={t.to}
-                  className={`px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-                    tab === t.id
-                      ? 'bg-surface-container-highest text-on-surface'
-                      : 'text-outline hover:text-on-surface hover:bg-surface-container-highest'
-                  }`}
+            {filtersAreNonDefault && (
+              <div className="flex flex-wrap items-center gap-2 border-t border-outline-variant/10 pt-3">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-outline">
+                  Active filters
+                </span>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="rounded-lg border border-outline-variant/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary hover:bg-primary/10"
                 >
-                  {t.label}
-                </Link>
-              ))}
-            </div>
+                  Clear all
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -595,13 +1108,14 @@ export default function Dashboard({ tab }: { tab: Tab }) {
                 {search ? 'No markets match your search' : 'No markets found'}
               </p>
               <p className="text-outline text-sm">
-                {tab === 'markets' && !search && 'No markets on-chain or in this browser yet.'}
-                {tab === 'creator' && 'No markets created by this wallet.'}
-                {tab === 'judges' && 'No markets where this wallet is a resolver.'}
+                {creatorPubkey && !search && 'No markets found for this creator in the current discovery set.'}
+                {!creatorPubkey && tab === 'markets' && !search && 'No markets on-chain or in this browser yet.'}
+                {!creatorPubkey && tab === 'creator' && 'No markets created by this wallet.'}
+                {!creatorPubkey && tab === 'judges' && 'No markets where this wallet is a resolver.'}
                 {search && 'Try a different search term.'}
               </p>
             </div>
-            {tab === 'markets' && !search && (
+            {tab === 'markets' && !search && !creatorPubkey && (
               <Link to="/create" className="btn-primary text-sm px-6 py-2.5">
                 <span className="material-symbols-outlined text-[18px]">add_circle</span>
                 Create a market
@@ -614,7 +1128,11 @@ export default function Dashboard({ tab }: { tab: Tab }) {
         {displayList.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
             {displayList.map((m) => (
-              <MarketCard key={m.marketPda} m={m} />
+              <MarketCard
+                key={m.marketPda}
+                m={m}
+                creatorProfile={profilesByCreator[m.creator]}
+              />
             ))}
           </div>
         )}

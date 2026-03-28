@@ -15,6 +15,10 @@ pub struct RedeemWinningArgs {
 
 pub fn handler(ctx: Context<RedeemWinning>, args: RedeemWinningArgs) -> Result<()> {
     let market = &ctx.accounts.market;
+    require!(
+        market.market_type == MarketType::CompleteSet,
+        PredictionMarketError::WrongMarketType
+    );
     require!(market.is_resolved(), PredictionMarketError::MarketNotResolved);
     require!(!market.voided, PredictionMarketError::MarketVoided);
     let winning_index = market

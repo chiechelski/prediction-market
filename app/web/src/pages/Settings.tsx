@@ -6,6 +6,7 @@ import {
   closeUserProfile,
   type UserProfileData,
 } from '@/lib/marketActions';
+import { useToast } from '@/context/ToastContext';
 
 const MAX_DISPLAY_NAME = 50;
 const MAX_URL = 100;
@@ -13,6 +14,7 @@ const MAX_URL = 100;
 export default function Settings() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const toast = useToast();
 
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,8 +69,11 @@ export default function Settings() {
       const updated = await fetchUserProfile(connection, wallet, wallet.publicKey!);
       setProfile(updated);
       setSaveSuccess(true);
+      toast.success('Profile saved.');
     } catch (err: any) {
-      setSaveError(err?.message ?? 'Transaction failed.');
+      const msg = err?.message ?? 'Transaction failed.';
+      setSaveError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -83,8 +88,11 @@ export default function Settings() {
       setDisplayName('');
       setUrl('');
       setConfirmDelete(false);
+      toast.success('Profile removed from chain.');
     } catch (err: any) {
-      setCloseError(err?.message ?? 'Transaction failed.');
+      const msg = err?.message ?? 'Transaction failed.';
+      setCloseError(msg);
+      toast.error(msg);
     } finally {
       setClosing(false);
     }

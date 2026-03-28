@@ -76,10 +76,11 @@ const { marketPda } = await client.createMarket(
     resolutionThreshold: 1,
     closeAt: new BN(Math.floor(Date.now() / 1000) + 86400),
     creatorFeeBps: 50,
-    platformFeeBps: 0,
+    depositPlatformFeeBps: 0,
     numResolvers: 1,
     title: 'Will it rain tomorrow?',
     marketCategory: null,
+    marketType: 'completeSet', // omit or 'parimutuel' — pari uses initializeParimutuelState instead of mints
   }
 );
 await client.initializeMarketResolvers(marketPda, { marketId, resolverPubkeys, numResolvers });

@@ -2,18 +2,16 @@
 
 use anchor_lang::prelude::*;
 
-pub const RESOLVER_ACCOUNT_SPACE_PADDING: usize = 40;
-
-pub const RESOLVER_ACCOUNT_SPACE: usize =
-    8 + 32 + RESOLVER_ACCOUNT_SPACE_PADDING; // discriminator + resolver_pubkey + padding
+pub const RESOLVER_ACCOUNT_SPACE_PADDING: usize = 64;
 
 /// Marker: this pubkey is a resolver for the market.
 #[account]
+#[derive(InitSpace)]
 pub struct Resolver {
     pub resolver_pubkey: Pubkey,
     pub _padding: [u8; RESOLVER_ACCOUNT_SPACE_PADDING],
 }
 
 impl Resolver {
-    pub const LEN: usize = RESOLVER_ACCOUNT_SPACE;
+    pub const LEN: usize = 8 + Resolver::INIT_SPACE;
 }
