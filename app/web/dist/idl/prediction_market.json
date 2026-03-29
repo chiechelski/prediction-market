@@ -2907,7 +2907,7 @@
             "type": {
               "array": [
                 "u8",
-                40
+                64
               ]
             }
           }
@@ -3025,7 +3025,8 @@
             "name": "deposit_platform_fee_bps",
             "docs": [
               "Default platform fee on **complete-set mint** and **pari-mutuel stake** (deposit collateral):",
-              "basis points of `amount`. Per-market override: `Market::deposit_platform_fee_bps` or `0` to use this."
+              "basis points of **net** collateral credited to the vault / pool (`amount` in those instructions).",
+              "Per-market override: `Market::deposit_platform_fee_bps` or `0` to use this."
             ],
             "type": "u16"
           },
@@ -3072,7 +3073,7 @@
             "type": {
               "array": [
                 "u8",
-                52
+                64
               ]
             }
           }
@@ -3223,7 +3224,7 @@
           {
             "name": "deposit_platform_fee_bps",
             "docs": [
-              "0 = use global `deposit_platform_fee_bps` — platform fee on **mint complete set** and **pari stake**."
+              "0 = use global `deposit_platform_fee_bps` — platform fee on **net** deposit for **mint complete set** and **pari stake**."
             ],
             "type": "u16"
           },
@@ -3251,6 +3252,15 @@
               "defined": {
                 "name": "MarketType"
               }
+            }
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
             }
           }
         ]
@@ -3288,7 +3298,7 @@
             "type": {
               "array": [
                 "u8",
-                64
+                96
               ]
             }
           }
@@ -3322,6 +3332,9 @@
         "fields": [
           {
             "name": "amount",
+            "docs": [
+              "Collateral base units **credited to the vault** and **minted per outcome token**. Fees are taken on top."
+            ],
             "type": "u64"
           },
           {
@@ -3349,7 +3362,7 @@
             "type": {
               "array": [
                 "u8",
-                40
+                64
               ]
             }
           }
@@ -3420,7 +3433,7 @@
             "type": {
               "array": [
                 "u8",
-                7
+                64
               ]
             }
           }
@@ -3442,6 +3455,10 @@
           },
           {
             "name": "amount",
+            "docs": [
+              "Collateral base units **credited to the pari pool** (net stake). Platform and creator token fees",
+              "are `floor(amount * bps / 10000)` each and debited **in addition** to this amount."
+            ],
             "type": "u64"
           }
         ]
@@ -3488,23 +3505,24 @@
           {
             "name": "penalty_kept_in_pool_bps",
             "docs": [
-              "Of that withheld penalty, basis points (of 10000) that **remain in the same outcome pool**.",
-              "The rest is **penalty surplus** split between protocol and creator per the two fields below."
+              "Of that withheld penalty, basis points (of 10000) used to split the penalty into two slices",
+              "(`pool_keep` vs **penalty surplus**) before each slice is sent to protocol/creator using",
+              "`penalty_surplus_protocol_share_bps`. Neither slice remains in the outcome pool (keeps",
+              "`outcome_pools[i]` aligned with the sum of `active_stake` on side `i`)."
             ],
             "type": "u16"
           },
           {
             "name": "penalty_surplus_protocol_share_bps",
             "docs": [
-              "Snapshot at pool init: share of **penalty surplus** (after pool keeps its slice) to protocol."
+              "Snapshot at pool init: protocol share (bps of 10000) of each penalty slice (`pool_keep` and surplus)."
             ],
             "type": "u16"
           },
           {
             "name": "penalty_surplus_creator_share_bps",
             "docs": [
-              "Snapshot at pool init: share of penalty surplus to the market creator (`creator_fee_account`).",
-              "Must satisfy `penalty_surplus_protocol_share_bps + penalty_surplus_creator_share_bps == 10000`."
+              "Snapshot at pool init: creator share of each penalty slice (must sum to 10000 with protocol)."
             ],
             "type": "u16"
           },
@@ -3532,7 +3550,7 @@
             "type": {
               "array": [
                 "u8",
-                1
+                64
               ]
             }
           }
@@ -3610,7 +3628,7 @@
             "type": {
               "array": [
                 "u8",
-                40
+                64
               ]
             }
           }
@@ -3634,7 +3652,7 @@
             "type": {
               "array": [
                 "u8",
-                40
+                64
               ]
             }
           }
@@ -3699,7 +3717,7 @@
             "type": {
               "array": [
                 "u8",
-                31
+                64
               ]
             }
           }

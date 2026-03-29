@@ -12,6 +12,8 @@ use anchor_spl::token_interface::{Mint as InterfaceMint, TokenAccount as Interfa
 pub struct ParimutuelStakeArgs {
     pub market_id: u64,
     pub outcome_index: u8,
+    /// Collateral base units **credited to the pari pool** (net stake). Platform and creator token fees
+    /// are `floor(amount * bps / 10000)` each and debited **in addition** to this amount.
     pub amount: u64,
 }
 
@@ -55,13 +57,13 @@ pub fn handler(ctx: Context<ParimutuelStake>, args: ParimutuelStakeArgs) -> Resu
 
     let global_config = &ctx.accounts.global_config;
     let global_bps = global_config.deposit_platform_fee_bps;
-    let platform_fee = market.calculate_deposit_platform_fee(args.amount, global_bps);
-    let creator_fee = market.calculate_creator_fee(args.amount);
-    let net = args
-        .amount
-        .checked_sub(platform_fee)
-        .and_then(|n| n.checked_sub(creator_fee))
-        .ok_or(PredictionMarketError::InvalidFeeBps)?;
+    let net = args.amount;
+    let platform_fee = market.calculate_deposit_platform_fee(net, global_bps);
+    let creator_fee = market.calculate_creator_fee(net);
+    let gross = net
+        .checked_add(platform_fee)
+        .and_then(|g| g.checked_add(creator_fee))
+        .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
 
     let fee_lamports = global_config.platform_fee_lamports;
     if fee_lamports > 0 {
@@ -108,7 +110,7 @@ pub fn handler(ctx: Context<ParimutuelStake>, args: ParimutuelStakeArgs) -> Resu
         .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
     pos.total_deposited = pos
         .total_deposited
-        .checked_add(args.amount)
+        .checked_add(gross)
         .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
 
     let decimals = ctx.accounts.collateral_mint.decimals;

@@ -541,6 +541,39 @@ export async function revokeResolutionVoteTx(
     .rpc();
 }
 
+/** Read `ResolutionVote` PDA for a resolver slot (no wallet). */
+export async function fetchResolutionVoteState(
+  connection: Connection,
+  marketPda: PublicKey,
+  resolverIndex: number
+): Promise<{ hasVoted: boolean; outcomeIndex: number }> {
+  const idl = await fetchIdl();
+  const provider = new AnchorProvider(
+    connection,
+    {
+      publicKey: DEFAULT_PUBKEY,
+      signTransaction: async (t: unknown) => t,
+      signAllTransactions: async (ts: unknown) => ts,
+    } as any,
+    { commitment: 'confirmed' }
+  );
+  const program = new Program(idl, provider);
+  const votePda = deriveResolutionVote(
+    program.programId,
+    marketPda,
+    resolverIndex
+  );
+  try {
+    const acc = await (program.account as any).resolutionVote.fetch(votePda);
+    return {
+      hasVoted: Boolean(acc.hasVoted),
+      outcomeIndex: Number(acc.outcomeIndex ?? 0),
+    };
+  } catch {
+    return { hasVoted: false, outcomeIndex: 0 };
+  }
+}
+
 export async function finalizeResolutionTx(
   connection: Connection,
   wallet: WalletContextState,

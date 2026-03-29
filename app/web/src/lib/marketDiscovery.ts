@@ -43,8 +43,6 @@ export type DashboardMarketEntry = {
   /** Display title (falls back to label for legacy registry rows). */
   title?: string;
   category?: string;
-  /** Local-only creator display name from registry. */
-  creatorDisplayName?: string;
   createdAt: number;
   outcomeCount?: number;
   closeAt?: number;
@@ -228,7 +226,6 @@ export function mergeRegistryAndChain(
       category: c
         ? resolveCategoryLabel(c.categoryPubkey, labels, r.category)
         : r.category,
-      creatorDisplayName: r.creatorDisplayName,
       createdAt: r.createdAt,
       outcomeCount: c?.outcomeCount,
       closeAt: c?.closeAt,

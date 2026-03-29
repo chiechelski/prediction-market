@@ -20,10 +20,6 @@ export type RegisteredMarket = {
   label?: string;
   /** Display label for filters; local-only (mirrors on-chain category name when possible). */
   category?: string;
-  /** Optional display name for the creator (local-only). */
-  creatorDisplayName?: string;
-  /** Longer description / rules / context (local-only; shown on market info page). */
-  detailsText?: string;
   createdAt: number;
 };
 

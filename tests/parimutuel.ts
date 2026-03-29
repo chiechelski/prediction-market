@@ -221,8 +221,8 @@ describe('parimutuel market', () => {
       .rpc({ skipPreflight: true });
 
     const pari = await program.account.parimutuelState.fetch(pariStatePda);
-    assert.equal(pari.totalPool.toString(), '990000');
-    assert.equal(pari.outcomePools[0].toString(), '990000');
+    assert.equal(pari.totalPool.toString(), '1000000');
+    assert.equal(pari.outcomePools[0].toString(), '1000000');
 
     await program.methods
       .closeMarketEarly({ marketId: pariMarketId })
@@ -308,7 +308,7 @@ describe('parimutuel market', () => {
     const deltaUser = Number(userAfter.amount) - Number(userBefore.amount);
     const deltaVault = Number(vaultBefore.amount) - Number(vaultAfter.amount);
     assert.equal(deltaUser, deltaVault, 'user gain equals vault out');
-    assert.equal(deltaUser, 990_000, 'single staker wins full pool (after 1% deposit fee)');
+    assert.equal(deltaUser, 1_000_000, 'single staker wins full pool');
 
     const posAfter = await program.account.parimutuelPosition.fetch(posPda);
     assert.isTrue(posAfter.claimed);
@@ -406,16 +406,16 @@ describe('parimutuel market', () => {
 
     const userAfter = await getAccount(connection, payerCollateralAta, undefined, TOKEN_PROGRAM_ID);
     const deltaUser = Number(userAfter.amount) - Number(userBefore.amount);
-    // 5% penalty on 400k => 20k; refund 380k. `setupPariMarket` sets creator_fee_account = payer collateral ATA,
-    // so the creator's share of penalty surplus (3200) credits the same account as the user refund.
-    assert.equal(deltaUser, 383_200);
+    // 5% penalty on 400k => 20k; refund 380k. Creator fee ATA = payer: 80% of full 20k penalty = 16k to creator.
+    assert.equal(deltaUser, 396_000);
 
     const pos = await program.account.parimutuelPosition.fetch(posPda);
-    assert.equal(pos.activeStake.toString(), '590000');
+    assert.equal(pos.activeStake.toString(), '600000');
 
     const pari = await program.account.parimutuelState.fetch(pariStatePda);
-    assert.equal(pari.outcomePools[0].toString(), '606000');
-    assert.equal(pari.totalPool.toString(), '606000');
+    // Outcome bucket drops by full withdraw (400k); matches remaining active_stake (600k net stake).
+    assert.equal(pari.outcomePools[0].toString(), '600000');
+    assert.equal(pari.totalPool.toString(), '600000');
   });
 
   it('second parimutuel_claim fails with ParimutuelAlreadyClaimed', async () => {
@@ -800,13 +800,13 @@ describe('parimutuel market', () => {
 
     assert.equal(
       Number(payerAfter.amount) - Number(payerBefore.amount),
-      2_970_000,
-      '3/4 of net pool (1% deposit fee on stakes)'
+      3_000_000,
+      '3/4 of pool (stakes are net amounts)'
     );
     assert.equal(
       Number(userAfter.amount) - Number(userBefore.amount),
-      990_000,
-      '1/4 of net pool'
+      1_000_000,
+      '1/4 of pool'
     );
   });
 });

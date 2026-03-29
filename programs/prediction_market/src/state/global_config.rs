@@ -11,7 +11,8 @@ pub struct GlobalConfig {
     /// Backup authority — same permissions as `authority`. `Pubkey::default()` disables.
     pub secondary_authority: Pubkey,
     /// Default platform fee on **complete-set mint** and **pari-mutuel stake** (deposit collateral):
-    /// basis points of `amount`. Per-market override: `Market::deposit_platform_fee_bps` or `0` to use this.
+    /// basis points of **net** collateral credited to the vault / pool (`amount` in those instructions).
+    /// Per-market override: `Market::deposit_platform_fee_bps` or `0` to use this.
     pub deposit_platform_fee_bps: u16,
     /// Wallet that receives platform token fees (ATA derived per collateral mint).
     pub platform_treasury: Pubkey,

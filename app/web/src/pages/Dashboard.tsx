@@ -120,11 +120,7 @@ function MarketCard({
   const winIdx = m.resolvedOutcomeIndex ?? null;
   const isResolved = status === 'resolved';
   const isActive = status === 'open' || status === 'closing-soon';
-  const creatorLabel = resolveCreatorDisplayName(
-    m.creator,
-    creatorProfile,
-    m.creatorDisplayName
-  );
+  const creatorLabel = resolveCreatorDisplayName(m.creator, creatorProfile);
   const pubkeyShort = shortCreatorAddress(m.creator);
   const showWalletLine = creatorLabel !== pubkeyShort;
 
@@ -163,11 +159,6 @@ function MarketCard({
           {m.closeAt && isActive && (
             <span className="text-outline text-[10px] uppercase font-bold tracking-tighter">
               Ends in {formatTimeLeft(m.closeAt)}
-            </span>
-          )}
-          {isResolved && (
-            <span className="text-outline text-[10px] uppercase font-bold tracking-tighter">
-              Resolved
             </span>
           )}
         </div>
@@ -467,8 +458,9 @@ export default function Dashboard({
 
   const creatorKeys = useMemo(() => {
     const uniq = new Set(mergedMarkets.map((m) => m.creator));
+    if (creatorPubkey) uniq.add(creatorPubkey);
     return [...uniq].sort().join('\n');
-  }, [mergedMarkets]);
+  }, [mergedMarkets, creatorPubkey]);
 
   const [profilesByCreator, setProfilesByCreator] = useState<
     Record<string, UserProfileData | null>
@@ -564,13 +556,8 @@ export default function Dashboard({
 
   const creatorProfileDisplayName = useMemo(() => {
     if (!creatorPubkey) return null;
-    const fromChain = profilesByCreator[creatorPubkey]?.displayName?.trim();
-    if (fromChain) return fromChain;
-    const named = mergedMarkets.find(
-      (m) => m.creator === creatorPubkey && m.creatorDisplayName?.trim()
-    );
-    return named?.creatorDisplayName?.trim() ?? null;
-  }, [creatorPubkey, mergedMarkets, profilesByCreator]);
+    return profilesByCreator[creatorPubkey]?.displayName?.trim() ?? null;
+  }, [creatorPubkey, profilesByCreator]);
 
   const displayList = useMemo(() => {
     let list = baseList;
@@ -591,7 +578,6 @@ export default function Dashboard({
           m.label.toLowerCase().includes(q) ||
           (m.title?.toLowerCase().includes(q) ?? false) ||
           (m.category?.toLowerCase().includes(q) ?? false) ||
-          (m.creatorDisplayName?.toLowerCase().includes(q) ?? false) ||
           (profilesByCreator[m.creator]?.displayName?.toLowerCase().includes(q) ??
             false) ||
           m.marketPda.toLowerCase().includes(q) ||
@@ -737,9 +723,25 @@ export default function Dashboard({
             </nav>
           )}
           <div>
-            <h1 className="font-headline mb-1 text-3xl font-extrabold tracking-tight text-on-surface italic">
-              {pageTitle}
-            </h1>
+            <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h1 className="font-headline text-3xl font-extrabold tracking-tight text-on-surface italic">
+                {pageTitle}
+              </h1>
+              {creatorPubkey && profilesByCreator[creatorPubkey]?.verified && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-secondary/35 bg-secondary/12 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-secondary"
+                  title="Verified account"
+                >
+                  <span
+                    className="material-symbols-outlined text-[14px] leading-none"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    verified_user
+                  </span>
+                  Verified
+                </span>
+              )}
+            </div>
             <p className="font-medium text-outline">{pageSubtitle}</p>
           </div>
 

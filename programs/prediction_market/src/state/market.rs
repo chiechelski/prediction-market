@@ -24,7 +24,7 @@ pub struct Market {
     pub creator: Pubkey,
     pub creator_fee_bps: u16,
     pub creator_fee_account: Pubkey,
-    /// 0 = use global `deposit_platform_fee_bps` — platform fee on **mint complete set** and **pari stake**.
+    /// 0 = use global `deposit_platform_fee_bps` — platform fee on **net** deposit for **mint complete set** and **pari stake**.
     pub deposit_platform_fee_bps: u16,
     pub bump: u8,
     /// UTF-8 title shown in UIs (max 128 bytes).

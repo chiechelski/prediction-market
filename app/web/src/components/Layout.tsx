@@ -439,16 +439,6 @@ export default function Layout() {
 
           {/* Right controls */}
           <div className="flex items-center gap-3">
-            {connected && (
-              <div className="hidden lg:flex items-center bg-surface-container-lowest px-3 py-1.5 rounded-lg border border-outline-variant/10">
-                <span className="material-symbols-outlined text-outline mr-2 text-[18px] leading-none">search</span>
-                <input
-                  className="bg-transparent border-none text-xs focus:ring-0 focus:outline-none text-on-surface-variant w-40 placeholder:text-outline"
-                  placeholder="Search markets..."
-                  type="text"
-                />
-              </div>
-            )}
             {connected && publicKey && (
               <div className="hidden sm:flex items-center gap-2 rounded-lg border border-outline-variant/15 bg-surface-container px-3 py-1.5">
                 <span

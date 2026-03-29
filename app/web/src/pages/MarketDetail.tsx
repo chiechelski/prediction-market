@@ -17,11 +17,13 @@ import {
   mintCompleteSetTx,
   redeemCompleteSetTx,
   voteResolutionTx,
+  revokeResolutionVoteTx,
   finalizeResolutionTx,
   closeMarketEarlyTx,
   voidMarketTx,
   redeemWinningTx,
   findResolverSlot,
+  fetchResolutionVoteState,
   isParimutuelMarket,
   parimutuelStakeTx,
   parimutuelWithdrawTx,
@@ -37,7 +39,7 @@ import {
   formatRawCollateralAmount,
   parimutuelUserRefundPreview,
 } from '@/lib/parimutuelWithdrawPreview';
-import { grossForDesiredNetToPool } from '@/lib/depositFeePreview';
+import { previewParimutuelStakeDeposit } from '@/lib/depositFeePreview';
 import { bnFromAnchor } from '@/lib/anchorAmount';
 import {
   formatTimeLeft,
@@ -82,6 +84,23 @@ function outcomeLabelsFromRegistry(
   return Array.from({ length: outcomeCount }, (_, i) => `Outcome ${i + 1}`);
 }
 
+/** Anchor `Option<u8>` may decode as `number`, `BN`, or null. */
+function normalizedResolvedOutcomeIndex(market: {
+  voided?: boolean;
+  resolvedOutcomeIndex?: unknown;
+} | null): number | null {
+  if (!market || market.voided) return null;
+  const r = market.resolvedOutcomeIndex;
+  if (r === null || r === undefined) return null;
+  if (typeof r === 'number' && Number.isFinite(r)) return Math.floor(r);
+  if (typeof r === 'object' && r !== null && 'toNumber' in r) {
+    const n = (r as BN).toNumber();
+    return Number.isFinite(n) ? Math.floor(n) : null;
+  }
+  const n = Number(r);
+  return Number.isFinite(n) ? Math.floor(n) : null;
+}
+
 export default function MarketDetail() {
   const { marketKey } = useParams<{ marketKey: string }>();
   const { connection } = useConnection();
@@ -98,6 +117,12 @@ export default function MarketDetail() {
   const [winHuman, setWinHuman] = useState('');
   const [voteOutcome, setVoteOutcome] = useState(0);
   const [resolverSlot, setResolverSlot] = useState<number | null>(null);
+  /** null = not a resolver; undefined = loading; object = on-chain vote PDA */
+  const [resolutionVoteState, setResolutionVoteState] = useState<
+    { hasVoted: boolean; outcomeIndex: number } | null | undefined
+  >(null);
+  /** Bumps after any successful tx so read-only chain data (e.g. resolution vote) refetches. */
+  const [chainRefreshVersion, setChainRefreshVersion] = useState(0);
   const [resolvedCategoryName, setResolvedCategoryName] = useState<
     string | null
   >(null);
@@ -113,6 +138,7 @@ export default function MarketDetail() {
   const [pariWalletDataVersion, setPariWalletDataVersion] = useState(0);
   /** Per-outcome active stake for the connected wallet; null if N/A or not loaded. */
   const [pariStakesByOutcome, setPariStakesByOutcome] = useState<BN[] | null>(null);
+  const [pariLastClaimedAmount, setPariLastClaimedAmount] = useState<BN | null>(null);
   const [pariWithdrawPlatformFeeBps, setPariWithdrawPlatformFeeBps] = useState(0);
   const [pariPlatformFeeLamports, setPariPlatformFeeLamports] = useState(0);
   /** Global default deposit platform fee (bps); used with per-market override. */
@@ -231,6 +257,37 @@ export default function MarketDetail() {
       cancelled = true;
     };
   }, [connection, marketKey, wallet.publicKey, wallet, market]);
+
+  useEffect(() => {
+    if (!marketKey || resolverSlot === null) {
+      setResolutionVoteState(null);
+      return;
+    }
+    let cancelled = false;
+    setResolutionVoteState(undefined);
+    (async () => {
+      try {
+        const s = await fetchResolutionVoteState(
+          connection,
+          new PublicKey(marketKey),
+          resolverSlot
+        );
+        if (!cancelled) setResolutionVoteState(s);
+      } catch {
+        if (!cancelled)
+          setResolutionVoteState({ hasVoted: false, outcomeIndex: 0 });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, marketKey, resolverSlot, chainRefreshVersion]);
+
+  useEffect(() => {
+    if (resolutionVoteState?.hasVoted) {
+      setVoteOutcome(resolutionVoteState.outcomeIndex);
+    }
+  }, [resolutionVoteState]);
 
   useEffect(() => {
     const raw = market?.collateralMint;
@@ -361,6 +418,42 @@ export default function MarketDetail() {
     return pariStakesByOutcome[pariWithdrawOutcomeIdx]!;
   }, [pariStakesByOutcome, pariWithdrawOutcomeIdx]);
 
+  const pariTotalPoolBn = useMemo(() => {
+    if (!pariState || !market) return null;
+    return bnFromAnchor((pariState as { totalPool?: unknown }).totalPool);
+  }, [pariState, market]);
+
+  /** Only show pari claim CTA when positions are loaded and winning outcome has active stake. */
+  const hasPariWinningStakeToClaim = useMemo(() => {
+    if (!market || !isParimutuelMarket(market) || market.voided) return false;
+    const winIdx = normalizedResolvedOutcomeIndex(market);
+    if (winIdx === null) return false;
+    if (
+      !pariStakesByOutcome ||
+      winIdx < 0 ||
+      winIdx >= pariStakesByOutcome.length
+    ) {
+      return false;
+    }
+    return pariStakesByOutcome[winIdx]!.gtn(0);
+  }, [market, pariStakesByOutcome]);
+
+  /** Pro-rata payout estimate: userStake / winningPool × totalPool */
+  const pariClaimPreview = useMemo((): BN | null => {
+    if (!market || !isParimutuelMarket(market) || !pariState) return null;
+    const winIdx = normalizedResolvedOutcomeIndex(market);
+    if (winIdx === null) return null;
+    const userStake = pariStakesByOutcome?.[winIdx];
+    if (!userStake || userStake.lten(0)) return null;
+    const totalPool = bnFromAnchor((pariState as { totalPool?: unknown }).totalPool);
+    const winPool = bnFromAnchor(
+      (pariState as { outcomePools?: unknown[] }).outcomePools?.[winIdx]
+    );
+    if (winPool.lten(0)) return null;
+    // payout = userStake * totalPool / winPool
+    return userStake.mul(totalPool).div(winPool);
+  }, [market, pariState, pariStakesByOutcome]);
+
   const marketIdBn = effectiveMarketId
     ? new BN(effectiveMarketId, 10)
     : null;
@@ -369,7 +462,7 @@ export default function MarketDetail() {
     market
       ? market.voided
         ? 'voided'
-        : market.resolvedOutcomeIndex != null
+        : normalizedResolvedOutcomeIndex(market) !== null
           ? 'resolved'
           : market.closed
             ? 'closed'
@@ -433,7 +526,7 @@ export default function MarketDetail() {
     if (!Number.isFinite(n) || n <= 0) return null;
     const desiredNet = new BN(Math.floor(n * 10 ** dec));
     if (desiredNet.lten(0)) return null;
-    return grossForDesiredNetToPool(
+    return previewParimutuelStakeDeposit(
       desiredNet,
       Number(market.depositPlatformFeeBps ?? 0),
       pariGlobalDepositFeeBps,
@@ -447,6 +540,7 @@ export default function MarketDetail() {
     try {
       await fn();
       await loadMarket();
+      setChainRefreshVersion((v) => v + 1);
       if (market && isParimutuelMarket(market)) {
         setPariWalletDataVersion((v) => v + 1);
       }
@@ -508,6 +602,10 @@ export default function MarketDetail() {
       setTxError('Your wallet is not a resolver for this market');
       return;
     }
+    if (resolutionVoteState?.hasVoted) {
+      setTxError('You already voted. Revoke your vote first to change it.');
+      return;
+    }
     await run(
       () =>
         voteResolutionTx(
@@ -519,6 +617,29 @@ export default function MarketDetail() {
           resolverSlot
         ),
       'Resolution vote submitted.'
+    );
+  };
+
+  const handleRevokeVote = async () => {
+    if (
+      !marketKey ||
+      !marketIdBn ||
+      resolverSlot === null ||
+      !resolutionVoteState?.hasVoted
+    ) {
+      return;
+    }
+    await run(
+      () =>
+        revokeResolutionVoteTx(
+          connection,
+          wallet,
+          new PublicKey(marketKey),
+          marketIdBn,
+          resolutionVoteState.outcomeIndex,
+          resolverSlot
+        ),
+      'Vote revoked. You can submit a new vote.'
     );
   };
 
@@ -588,7 +709,7 @@ export default function MarketDetail() {
           marketIdBn,
           collateralMint,
           pariStakeOutcomeIdx,
-          pariStakeFeePreview.gross
+          pariStakeFeePreview.netToPool
         ),
       stakeSuccessMsg
     );
@@ -624,11 +745,17 @@ export default function MarketDetail() {
 
   const handlePariClaim = async () => {
     if (!marketKey || !wallet.publicKey || !marketIdBn || !collateralMint || !market) return;
-    const winIdx = market.resolvedOutcomeIndex;
-    if (winIdx === null || winIdx === undefined) {
+    const winIdx = normalizedResolvedOutcomeIndex(market);
+    if (winIdx === null) {
       setTxError('Market not resolved');
       return;
     }
+    const winStake = pariStakesByOutcome?.[winIdx];
+    if (!winStake?.gtn(0)) {
+      setTxError('You have no stake on the winning outcome to claim.');
+      return;
+    }
+    if (pariClaimPreview) setPariLastClaimedAmount(pariClaimPreview);
     await run(
       () =>
         parimutuelClaimTx(
@@ -652,8 +779,8 @@ export default function MarketDetail() {
       return;
     }
     const raw = new BN(Math.floor(n * 10 ** dec));
-    const winIdx = market.resolvedOutcomeIndex;
-    if (winIdx === null || winIdx === undefined) {
+    const winIdx = normalizedResolvedOutcomeIndex(market);
+    if (winIdx === null) {
       setTxError('Market not resolved');
       return;
     }
@@ -700,6 +827,20 @@ export default function MarketDetail() {
   const displayCategory = chainCategoryLabel || registry?.category;
   const outcomeLabels = outcomeLabelsFromRegistry(registry?.label, outcomeCount);
   const isPari = isParimutuelMarket(market);
+  const resolvedWinnerIdx = normalizedResolvedOutcomeIndex(market);
+  const winningLabel =
+    resolvedWinnerIdx !== null &&
+    resolvedWinnerIdx >= 0 &&
+    resolvedWinnerIdx < outcomeCount
+      ? outcomeLabels[resolvedWinnerIdx]!
+      : resolvedWinnerIdx !== null
+        ? `Outcome ${resolvedWinnerIdx + 1}`
+        : null;
+  const showPariTradingSidebar =
+    isPari &&
+    !market.voided &&
+    resolvedWinnerIdx === null &&
+    (status === 'open' || status === 'closing-soon');
   const sectorSlug = inferMarketSectorSlug(displayCategory ?? undefined);
   const breadcrumbTitle =
     displayTitle.length > 52 ? `${displayTitle.slice(0, 49)}…` : displayTitle;
@@ -711,11 +852,7 @@ export default function MarketDetail() {
 
   const creatorPk = (market.creator as PublicKey).toBase58();
   const shortAddr = (pk: string) => `${pk.slice(0, 4)}…${pk.slice(-4)}`;
-  const creatorLabel = resolveCreatorDisplayName(
-    creatorPk,
-    creatorProfile,
-    registry?.creatorDisplayName
-  );
+  const creatorLabel = resolveCreatorDisplayName(creatorPk, creatorProfile);
   const creatorNamed = creatorLabel !== shortAddr(creatorPk);
 
   const shareMarketLink = async () => {
@@ -862,10 +999,13 @@ export default function MarketDetail() {
           </div>
         )}
 
-        {market.resolvedOutcomeIndex != null && (
-          <p className="text-primary font-medium">
-            Resolved: outcome index {market.resolvedOutcomeIndex}
-          </p>
+        {winningLabel && !isPari && (
+          <div className="rounded-xl border border-primary/25 bg-primary/10 px-4 py-3">
+            <p className="text-sm text-on-surface">
+              <span className="font-bold text-primary">Resolved.</span> Winning outcome:{' '}
+              <span className="font-semibold">{winningLabel}</span>
+            </p>
+          </div>
         )}
 
         {txError && (
@@ -1039,10 +1179,47 @@ export default function MarketDetail() {
                       </div>
                       {pariState &&
                         market &&
+                        pariTotalPoolBn?.isZero() &&
+                        (status === 'open' || status === 'closing-soon') ? (
+                        <div className="rounded-xl border border-dashed border-outline-variant/25 bg-gradient-to-b from-surface-container/40 to-surface-container-low/20 px-5 py-10 text-center sm:px-8">
+                          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary/15 text-secondary ring-1 ring-secondary/20">
+                            <span
+                              className="material-symbols-outlined text-[32px]"
+                              style={{ fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+                            >
+                              savings
+                            </span>
+                          </div>
+                          <p className="mt-5 font-headline text-lg font-bold tracking-tight text-on-surface sm:text-xl">
+                            No liquidity in the pool yet
+                          </p>
+                          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-on-surface-variant">
+                            Outcome bars and percentages appear once someone stakes. Until then the
+                            pool stays at zero — add a stake on an outcome to open the market side
+                            you believe in.
+                          </p>
+                          <p className="mt-6 text-[10px] font-black uppercase tracking-[0.2em] text-outline">
+                            Outcomes
+                          </p>
+                          <div className="mt-3 flex flex-wrap justify-center gap-2">
+                            {Array.from({ length: outcomeCount }, (_, i) => (
+                              <span
+                                key={i}
+                                className="rounded-lg border border-outline-variant/20 bg-surface-container-low/90 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-on-surface"
+                              >
+                                {outcomeLabels[i]}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {pariState &&
+                        market &&
+                        pariTotalPoolBn &&
+                        (!pariTotalPoolBn.isZero() ||
+                          (status !== 'open' && status !== 'closing-soon')) &&
                         Array.from({ length: outcomeCount }, (_, i) => {
-                          const totalBn = bnFromAnchor(
-                            (pariState as { totalPool?: unknown }).totalPool
-                          );
+                          const totalBn = pariTotalPoolBn;
                           const poolBn = bnFromAnchor(
                             (pariState as { outcomePools?: unknown[] }).outcomePools?.[i]
                           );
@@ -1056,12 +1233,26 @@ export default function MarketDetail() {
                           const showYourStakePanel =
                             wallet.publicKey &&
                             (pariStakesByOutcome === null || yourStakeBn.gtn(0));
+                          const isWinningOutcome =
+                            resolvedWinnerIdx !== null && resolvedWinnerIdx === i;
                           return (
-                            <div key={i} className="space-y-3">
+                            <div
+                              key={i}
+                              className={`space-y-3 rounded-xl border p-3 transition-colors ${
+                                isWinningOutcome
+                                  ? 'border-primary/40 bg-primary/5'
+                                  : 'border-transparent'
+                              }`}
+                            >
                               <div className="flex items-start justify-between gap-4">
                                 <div className="min-w-0">
-                                  <p className="text-sm font-semibold uppercase tracking-wide text-on-surface">
+                                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold uppercase tracking-wide text-on-surface">
                                     {outcomeLabels[i]}
+                                    {isWinningOutcome && (
+                                      <span className="rounded-md bg-primary/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-primary">
+                                        Winner
+                                      </span>
+                                    )}
                                   </p>
                                   <p className="mt-1 text-xs text-on-surface-variant">
                                     Total pool:{' '}
@@ -1125,6 +1316,8 @@ export default function MarketDetail() {
                 </div>
 
                 <div className="col-span-12 space-y-6 lg:col-span-4">
+                  {showPariTradingSidebar ? (
+                  <>
                   <div className="rounded-xl border border-secondary/25 bg-secondary/5 p-5">
                     <h3 className="text-sm font-bold text-on-surface">Add stake</h3>
                     <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-outline">
@@ -1483,11 +1676,105 @@ export default function MarketDetail() {
                       </div>
                     </div>
                   </details>
+                  </>
+                  ) : market.voided ? (
+                  <div className="rounded-xl border border-error/25 bg-error/5 p-5">
+                    <h3 className="text-sm font-bold text-error">Market voided</h3>
+                    <p className="mt-2 text-xs text-on-surface-variant leading-relaxed">
+                      This market was voided. Staking and claims follow protocol rules for voided
+                      pools.
+                    </p>
+                  </div>
+                  ) : winningLabel ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-primary/30 bg-primary/10 p-5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary">
+                        Winning outcome
+                      </p>
+                      <p className="mt-2 font-headline text-xl font-bold text-on-surface">
+                        {winningLabel}
+                      </p>
+                      <p className="mt-1 text-xs text-on-surface-variant leading-relaxed">
+                        Staking and early exit are closed. Payouts are pro-rata for stakes on this
+                        outcome.
+                      </p>
+                    </div>
+                    {wallet.publicKey && marketIdBn ? (
+                      hasPariWinningStakeToClaim ? (
+                        <div className="space-y-3">
+                          {pariClaimPreview && (
+                            <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-primary/70">
+                                Estimated payout
+                              </p>
+                              <p className="mt-0.5 font-headline text-2xl font-black tabular-nums text-primary">
+                                {formatRawCollateralAmount(
+                                  pariClaimPreview,
+                                  Number(market.collateralDecimals)
+                                )}{' '}
+                                {poolUnitLabel}
+                              </p>
+                              <p className="mt-1 text-[10px] text-on-surface-variant">
+                                Pro-rata share of the entire pool
+                              </p>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={handlePariClaim}
+                            className="btn-primary w-full py-3 text-base font-bold shadow-lg shadow-primary/20 disabled:opacity-50"
+                          >
+                            Claim pari-mutuel winnings
+                          </button>
+                        </div>
+                      ) : pariLastClaimedAmount ? (
+                        <div className="rounded-lg border border-secondary/25 bg-secondary/5 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-secondary text-[18px]">
+                              check_circle
+                            </span>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-secondary">
+                              Winnings claimed
+                            </p>
+                          </div>
+                          <p className="mt-1 font-headline text-xl font-black tabular-nums text-on-surface">
+                            {formatRawCollateralAmount(
+                              pariLastClaimedAmount,
+                              Number(market.collateralDecimals)
+                            )}{' '}
+                            {poolUnitLabel}
+                          </p>
+                          <p className="mt-1 text-[10px] text-on-surface-variant">
+                            Sent to your wallet.
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="rounded-lg border border-outline-variant/15 bg-surface-container-low/80 px-3 py-2 text-xs text-on-surface-variant">
+                          No winning stake on this wallet for this market.
+                        </p>
+                      )
+                    ) : (
+                      <p className="text-xs text-outline">
+                        Connect your wallet to claim if you staked on{' '}
+                        <span className="font-semibold text-on-surface">{winningLabel}</span>.
+                      </p>
+                    )}
+                  </div>
+                  ) : (
+                  <div className="rounded-xl border border-outline-variant/20 bg-surface-container-low p-5">
+                    <h3 className="text-sm font-bold text-on-surface">Trading closed</h3>
+                    <p className="mt-2 text-xs text-on-surface-variant leading-relaxed">
+                      This market is not accepting new stakes. The winning outcome is not finalized
+                      on-chain yet.
+                    </p>
+                  </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {market.resolvedOutcomeIndex != null && !market.voided && !isParimutuelMarket(market) && (
+            {resolvedWinnerIdx !== null && !market.voided && !isParimutuelMarket(market) && (
               <section>
                 <h2 className="text-lg font-bold text-on-surface">
                   Claim payout
@@ -1519,25 +1806,6 @@ export default function MarketDetail() {
               </section>
             )}
 
-            {market.resolvedOutcomeIndex != null && !market.voided && isParimutuelMarket(market) && (
-              <section>
-                <h2 className="text-lg font-bold text-on-surface">
-                  Claim payout
-                </h2>
-                <p className="mt-1 text-sm text-on-surface-variant">
-                  If you staked on the winning outcome, claim your pro-rata share of the pool.
-                </p>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handlePariClaim}
-                  className="btn-primary mt-3 disabled:opacity-50"
-                >
-                  Claim pari-mutuel winnings
-                </button>
-              </section>
-            )}
-
             <details className="group rounded-xl border border-outline-variant/10 bg-surface-container-lowest/40 p-4">
               <summary className="cursor-pointer list-none font-bold text-on-surface marker:content-none [&::-webkit-details-marker]:hidden">
                 <span className="inline-flex items-center gap-2">
@@ -1550,13 +1818,58 @@ export default function MarketDetail() {
               <p className="mt-2 text-sm text-on-surface-variant">
                 Assigned wallets vote on the winning outcome; when enough agree, anyone can finalize.
               </p>
+              {resolverSlot !== null && resolutionVoteState === undefined && (
+                <p className="mt-2 text-xs text-outline">
+                  Checking on-chain vote status…
+                </p>
+              )}
+              {resolverSlot !== null &&
+                resolutionVoteState?.hasVoted &&
+                resolvedWinnerIdx === null &&
+                !market.voided && (
+                  <p className="mt-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-on-surface">
+                    Your vote is recorded:{' '}
+                    <span className="font-semibold text-primary">
+                      {outcomeLabels[
+                        Math.min(
+                          Math.max(0, resolutionVoteState.outcomeIndex),
+                          outcomeCount - 1
+                        )
+                      ]}
+                    </span>
+                    . Revoke below if you need to change it.
+                  </p>
+                )}
+              {resolverSlot !== null &&
+                resolutionVoteState?.hasVoted &&
+                (resolvedWinnerIdx !== null || market.voided) && (
+                  <p className="mt-2 rounded-lg border border-outline-variant/20 bg-surface-container-high/40 px-3 py-2 text-sm text-on-surface-variant">
+                    You voted for{' '}
+                    <span className="font-medium text-on-surface">
+                      {outcomeLabels[
+                        Math.min(
+                          Math.max(0, resolutionVoteState.outcomeIndex),
+                          outcomeCount - 1
+                        )
+                      ]}
+                    </span>
+                    . This market is no longer open for resolution votes.
+                  </p>
+                )}
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <div>
                   <label className="block text-xs text-outline">Vote for</label>
                   <select
                     value={voteOutcome}
                     onChange={(e) => setVoteOutcome(Number(e.target.value))}
-                    className="input min-w-[12rem]"
+                    disabled={
+                      resolverSlot !== null &&
+                      (resolutionVoteState === undefined ||
+                        resolutionVoteState?.hasVoted ||
+                        market.voided ||
+                        resolvedWinnerIdx !== null)
+                    }
+                    className="input min-w-[12rem] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {Array.from({ length: outcomeCount }, (_, i) => (
                       <option key={i} value={i}>
@@ -1570,8 +1883,10 @@ export default function MarketDetail() {
                   disabled={
                     busy ||
                     resolverSlot === null ||
+                    resolutionVoteState === undefined ||
+                    resolutionVoteState?.hasVoted ||
                     market.voided ||
-                    market.resolvedOutcomeIndex != null
+                    resolvedWinnerIdx !== null
                   }
                   onClick={handleVote}
                   className="btn-primary disabled:opacity-50"
@@ -1581,7 +1896,21 @@ export default function MarketDetail() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy || market.resolvedOutcomeIndex != null}
+                  disabled={
+                    busy ||
+                    !resolutionVoteState?.hasVoted ||
+                    resolutionVoteState === undefined ||
+                    market.voided ||
+                    resolvedWinnerIdx !== null
+                  }
+                  onClick={handleRevokeVote}
+                  className="btn-secondary disabled:opacity-50"
+                >
+                  Revoke my vote
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || resolvedWinnerIdx !== null}
                   onClick={handleFinalize}
                   className="btn-secondary disabled:opacity-50"
                 >
@@ -1590,6 +1919,7 @@ export default function MarketDetail() {
               </div>
             </details>
 
+            {resolvedWinnerIdx === null && !market.voided && (
             <details className="group rounded-xl border border-outline-variant/10 bg-surface-container-lowest/40 p-4">
               <summary className="cursor-pointer list-none font-bold text-on-surface marker:content-none [&::-webkit-details-marker]:hidden">
                 <span className="inline-flex items-center gap-2">
@@ -1610,11 +1940,7 @@ export default function MarketDetail() {
                 </button>
                 <button
                   type="button"
-                  disabled={
-                    busy ||
-                    market.resolvedOutcomeIndex != null ||
-                    market.voided
-                  }
+                  disabled={busy}
                   onClick={handleVoid}
                   className="btn-secondary disabled:opacity-50"
                 >
@@ -1622,6 +1948,7 @@ export default function MarketDetail() {
                 </button>
               </div>
             </details>
+            )}
           </>
         )}
 

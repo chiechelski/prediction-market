@@ -1,7 +1,8 @@
 //! Pure fee math shared by **mint complete set**, **pari-mutuel stake**, and **pari-mutuel withdraw** previews.
-//! Matches on-chain rounding: `floor(amount * bps / 10000)` per fee leg.
+//! Deposit paths: fees are `floor(net * bps / 10000)` on the **net** collateral credited to the vault / pool;
+//! **gross** debited from the user is `net + platform_fee + creator_fee`.
 //!
-//! Use these for UI / SDK previews; on-chain instructions use the same formulas via [`crate::state::Market`] and withdraw handlers.
+//! Use these for UI / SDK previews; on-chain `mint_complete_set` and `parimutuel_stake` use the same rules.
 
 /// Effective deposit platform bps: per-market override if non-zero, else global default.
 #[inline]
@@ -22,38 +23,41 @@ pub fn fee_amount_floor(amount: u64, bps: u16) -> u64 {
     (amount as u128 * bps as u128 / 10000) as u64
 }
 
-/// Collateral split for a **deposit** (mint complete set or pari stake): fees taken from `gross`, remainder to vault.
+/// Collateral split for a **deposit** (mint complete set or pari stake): `net` to vault/pool; fees on `net`; `gross` total debit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DepositFeePreview {
     pub gross: u64,
     pub platform_fee: u64,
     pub creator_fee: u64,
-    /// Net collateral credited to the vault / pool after both token fees.
+    /// Net collateral credited to the vault / pool after both token fees (same as input `net`).
     pub net_to_vault: u64,
 }
 
 /// Preview deposit fees given **effective** platform bps (after global vs market resolution).
-pub fn preview_deposit_fees(
-    gross: u64,
+pub fn preview_deposit_fees_from_net(
+    net: u64,
     deposit_platform_bps_effective: u16,
     creator_fee_bps: u16,
 ) -> Option<DepositFeePreview> {
-    let platform_fee = fee_amount_floor(gross, deposit_platform_bps_effective);
-    let creator_fee = fee_amount_floor(gross, creator_fee_bps);
-    let net_to_vault = gross
-        .checked_sub(platform_fee)?
-        .checked_sub(creator_fee)?;
+    if net == 0 {
+        return None;
+    }
+    let platform_fee = fee_amount_floor(net, deposit_platform_bps_effective);
+    let creator_fee = fee_amount_floor(net, creator_fee_bps);
+    let gross = net
+        .checked_add(platform_fee)?
+        .checked_add(creator_fee)?;
     Some(DepositFeePreview {
         gross,
         platform_fee,
         creator_fee,
-        net_to_vault,
+        net_to_vault: net,
     })
 }
 
 /// Preview using market override + global default for platform bps (same rule as on-chain).
-pub fn preview_deposit_fees_with_market(
-    gross: u64,
+pub fn preview_deposit_fees_with_market_from_net(
+    net: u64,
     market_deposit_platform_fee_bps: u16,
     global_deposit_platform_fee_bps: u16,
     creator_fee_bps: u16,
@@ -62,7 +66,7 @@ pub fn preview_deposit_fees_with_market(
         market_deposit_platform_fee_bps,
         global_deposit_platform_fee_bps,
     );
-    preview_deposit_fees(gross, platform_bps, creator_fee_bps)
+    preview_deposit_fees_from_net(net, platform_bps, creator_fee_bps)
 }
 
 /// Full early-withdraw breakdown for pari-mutuel (matches [`crate::parimutuel_withdraw`]).
@@ -120,65 +124,40 @@ pub fn preview_parimutuel_early_withdraw(
     })
 }
 
-/// Smallest `gross` such that [`preview_deposit_fees`] yields `net_to_vault >= target_net`.
-/// Returns `None` when combined fee bps ≥ 10000 (net cannot grow without bound).
-pub fn gross_for_at_least_net_deposit(
-    target_net: u64,
-    deposit_platform_bps_effective: u16,
-    creator_fee_bps: u16,
-) -> Option<u64> {
-    if target_net == 0 {
-        return Some(0);
-    }
-    let total_fee_bps = deposit_platform_bps_effective as u32 + creator_fee_bps as u32;
-    if total_fee_bps >= 10000 {
-        return None;
-    }
-    let mut hi = target_net.max(1);
-    while preview_deposit_fees(hi, deposit_platform_bps_effective, creator_fee_bps)?.net_to_vault
-        < target_net
-    {
-        hi = hi.checked_mul(2)?;
-    }
-    let mut lo = 1u64;
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        let net = preview_deposit_fees(mid, deposit_platform_bps_effective, creator_fee_bps)?
-            .net_to_vault;
-        if net < target_net {
-            lo = mid.saturating_add(1);
-        } else {
-            hi = mid;
-        }
-    }
-    Some(lo)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn deposit_one_percent_platform_half_percent_creator() {
-        let p = preview_deposit_fees(1_000_000, 100, 50).unwrap();
-        assert_eq!(p.platform_fee, 10_000);
-        assert_eq!(p.creator_fee, 5_000);
-        assert_eq!(p.net_to_vault, 985_000);
+    fn deposit_fees_on_net_ten_usdc_scale() {
+        // net 10_000_000 (10 USDC @ 6dp): 1% + 0.5%
+        let p = preview_deposit_fees_from_net(10_000_000, 100, 50).unwrap();
+        assert_eq!(p.platform_fee, 100_000);
+        assert_eq!(p.creator_fee, 50_000);
+        assert_eq!(p.net_to_vault, 10_000_000);
+        assert_eq!(p.gross, 10_150_000);
     }
 
     #[test]
     fn deposit_market_override_zero_uses_global() {
-        let p = preview_deposit_fees_with_market(1_000_000, 0, 200, 0).unwrap();
+        let p =
+            preview_deposit_fees_with_market_from_net(1_000_000, 0, 200, 0).unwrap();
         assert_eq!(p.platform_fee, 20_000);
-        assert_eq!(p.net_to_vault, 980_000);
+        assert_eq!(p.creator_fee, 0);
+        assert_eq!(p.gross, 1_020_000);
     }
 
     #[test]
-    fn deposit_small_amount_rounds_down() {
-        let p = preview_deposit_fees(99, 100, 100).unwrap();
+    fn deposit_small_net_rounds_fees_down() {
+        let p = preview_deposit_fees_from_net(99, 100, 100).unwrap();
         assert_eq!(p.platform_fee, 0);
         assert_eq!(p.creator_fee, 0);
-        assert_eq!(p.net_to_vault, 99);
+        assert_eq!(p.gross, 99);
+    }
+
+    #[test]
+    fn deposit_zero_net_none() {
+        assert!(preview_deposit_fees_from_net(0, 100, 50).is_none());
     }
 
     #[test]
@@ -212,22 +191,5 @@ mod tests {
         assert_eq!(w.withdraw_platform_fee_raw, 50);
         assert_eq!(w.withdraw_platform_fee, 1);
         assert_eq!(w.user_refund, 0);
-    }
-
-    #[test]
-    fn gross_for_at_least_net_round_trip() {
-        let target = 985_000u64;
-        let g = gross_for_at_least_net_deposit(target, 100, 50).unwrap();
-        let p = preview_deposit_fees(g, 100, 50).unwrap();
-        assert!(p.net_to_vault >= target);
-        if g > 0 {
-            let p_prev = preview_deposit_fees(g - 1, 100, 50).unwrap();
-            assert!(p_prev.net_to_vault < target);
-        }
-    }
-
-    #[test]
-    fn gross_for_at_least_net_impossible_when_fees_full() {
-        assert!(gross_for_at_least_net_deposit(1, 5000, 5000).is_none());
     }
 }

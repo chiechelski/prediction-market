@@ -59,8 +59,6 @@ export default function CreateMarket() {
   });
   const [creatorFeeBpsStr, setCreatorFeeBpsStr] = useState('50');
   const [marketTitle, setMarketTitle] = useState('');
-  const [creatorDisplayName, setCreatorDisplayName] = useState('');
-  const [detailsText, setDetailsText] = useState('');
   /** Empty string = uncategorized on-chain. Otherwise base58 category PDA. */
   const [categoryPubkey, setCategoryPubkey] = useState('');
   const [chainCategories, setChainCategories] = useState<ChainMarketCategory[]>(
@@ -248,8 +246,6 @@ export default function CreateMarket() {
         title,
         category: categoryLabelForRegistry,
         label: outcomeLabelStr,
-        creatorDisplayName: creatorDisplayName.trim() || undefined,
-        detailsText: detailsText.trim() || undefined,
       });
 
       toast.success('Market created.');
@@ -342,30 +338,6 @@ export default function CreateMarket() {
           <p className="mt-1 text-xs text-outline">
             Shown in market lists and search.
           </p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-on-surface">
-            Creator display name <span className="text-outline font-normal">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={creatorDisplayName}
-            onChange={(e) => setCreatorDisplayName(e.target.value)}
-            placeholder="Shown on cards and info page (local only)"
-            className="input mt-1"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-on-surface">
-            Extended description <span className="text-outline font-normal">(optional)</span>
-          </label>
-          <textarea
-            value={detailsText}
-            onChange={(e) => setDetailsText(e.target.value)}
-            placeholder="Rules, resolution sources, links — stored in this browser only"
-            className="input mt-1 min-h-[100px] text-sm"
-            rows={4}
-          />
         </div>
         <div>
           <label className="block text-sm font-medium text-on-surface">

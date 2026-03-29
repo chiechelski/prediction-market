@@ -68,6 +68,21 @@ pub fn handler(ctx: Context<ParimutuelWithdraw>, args: ParimutuelWithdrawArgs) -
         .checked_sub(protocol_cut)
         .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
 
+    // Split `pool_keep` (penalty slice that used to linger in the outcome pool) like penalty surplus.
+    let pool_keep_protocol = (pool_keep as u128)
+        .checked_mul(pari.penalty_surplus_protocol_share_bps as u128)
+        .and_then(|x| x.checked_div(10000))
+        .ok_or(PredictionMarketError::OutcomeTallyOverflow)? as u64;
+    let pool_keep_creator = pool_keep
+        .checked_sub(pool_keep_protocol)
+        .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
+    let total_protocol_penalty = protocol_cut
+        .checked_add(pool_keep_protocol)
+        .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
+    let total_creator_penalty = creator_cut
+        .checked_add(pool_keep_creator)
+        .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
+
     let global_config = &ctx.accounts.global_config;
     let withdraw_pf_raw = (args.amount as u128)
         .checked_mul(global_config.parimutuel_withdraw_platform_fee_bps as u128)
@@ -96,19 +111,17 @@ pub fn handler(ctx: Context<ParimutuelWithdraw>, args: ParimutuelWithdrawArgs) -
         )?;
     }
 
-    let net_pool_reduction = args
-        .amount
-        .checked_sub(pool_keep)
-        .ok_or(PredictionMarketError::OutcomeTallyOverflow)?;
-
+    // Full withdrawal from this outcome's bucket so `outcome_pools[i]` stays aligned with
+    // the sum of `active_stake` on side `i`. `pool_keep` is paid to protocol/creator instead
+    // of remaining as unattributed liquidity (would skew claim math).
     pari.outcome_pools[i] = pari.outcome_pools[i]
-        .checked_sub(net_pool_reduction)
+        .checked_sub(args.amount)
         .ok_or(PredictionMarketError::OutcomeTallyEmpty)?;
     pari.total_pool = pari
         .total_pool
         .checked_sub(refund)
-        .and_then(|x| x.checked_sub(protocol_cut))
-        .and_then(|x| x.checked_sub(creator_cut))
+        .and_then(|x| x.checked_sub(total_protocol_penalty))
+        .and_then(|x| x.checked_sub(total_creator_penalty))
         .ok_or(PredictionMarketError::OutcomeTallyEmpty)?;
 
     pos.active_stake = pos
@@ -165,7 +178,7 @@ pub fn handler(ctx: Context<ParimutuelWithdraw>, args: ParimutuelWithdrawArgs) -
             &[market_seeds],
         )?;
     }
-    if protocol_cut > 0 {
+    if total_protocol_penalty > 0 {
         require!(
             ctx.accounts.platform_treasury_wallet.key() == ctx.accounts.global_config.platform_treasury,
             PredictionMarketError::ConfigUnauthorized
@@ -184,19 +197,19 @@ pub fn handler(ctx: Context<ParimutuelWithdraw>, args: ParimutuelWithdrawArgs) -
             &ctx.accounts.collateral_mint,
             &ctx.accounts.market.to_account_info(),
             &ctx.accounts.collateral_token_program,
-            protocol_cut,
+            total_protocol_penalty,
             decimals,
             &[market_seeds],
         )?;
     }
-    if creator_cut > 0 {
+    if total_creator_penalty > 0 {
         transfer_checked(
             &ctx.accounts.vault.to_account_info(),
             &ctx.accounts.creator_fee_account.to_account_info(),
             &ctx.accounts.collateral_mint,
             &ctx.accounts.market.to_account_info(),
             &ctx.accounts.collateral_token_program,
-            creator_cut,
+            total_creator_penalty,
             decimals,
             &[market_seeds],
         )?;
@@ -274,16 +287,26 @@ pub struct ParimutuelWithdraw<'info> {
 #[cfg(test)]
 mod penalty_tests {
     #[test]
-    fn withdrawal_penalty_100_units_five_percent_eighty_percent_to_pool() {
+    fn withdrawal_penalty_partitions_then_splits_pool_keep_and_surplus_to_fees() {
         let amount = 100u64;
         let early_withdraw_penalty_bps = 500u16;
         let penalty_kept_in_pool_bps = 8000u16;
+        let protocol_share_bps = 2000u16;
         let penalty = (amount as u128 * early_withdraw_penalty_bps as u128 / 10000) as u64;
         assert_eq!(penalty, 5);
         let refund = amount - penalty;
         assert_eq!(refund, 95);
         let pool_keep = (penalty as u128 * penalty_kept_in_pool_bps as u128 / 10000) as u64;
         assert_eq!(pool_keep, 4);
-        assert_eq!(penalty - pool_keep, 1);
+        let penalty_surplus = penalty - pool_keep;
+        assert_eq!(penalty_surplus, 1);
+        let protocol_cut =
+            (penalty_surplus as u128 * protocol_share_bps as u128 / 10000) as u64;
+        let pool_keep_protocol =
+            (pool_keep as u128 * protocol_share_bps as u128 / 10000) as u64;
+        let total_protocol = protocol_cut + pool_keep_protocol;
+        let total_creator = penalty - total_protocol;
+        assert_eq!(total_protocol + total_creator, penalty);
+        assert_eq!(refund + penalty, amount);
     }
 }

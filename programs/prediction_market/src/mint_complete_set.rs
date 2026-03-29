@@ -13,6 +13,7 @@ use anchor_spl::token_interface::TokenInterface;
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct MintCompleteSetArgs {
+    /// Collateral base units **credited to the vault** and **minted per outcome token**. Fees are taken on top.
     pub amount: u64,
     pub market_id: u64,
 }
@@ -55,13 +56,9 @@ pub fn handler<'info>(
 
     let global_config = &ctx.accounts.global_config;
     let global_bps = global_config.deposit_platform_fee_bps;
-    let platform_fee = market.calculate_deposit_platform_fee(args.amount, global_bps);
-    let creator_fee = market.calculate_creator_fee(args.amount);
-    let net = args
-        .amount
-        .checked_sub(platform_fee)
-        .and_then(|n| n.checked_sub(creator_fee))
-        .ok_or(PredictionMarketError::InvalidFeeBps)?;
+    let net = args.amount;
+    let platform_fee = market.calculate_deposit_platform_fee(net, global_bps);
+    let creator_fee = market.calculate_creator_fee(net);
 
     // Flat SOL fee to platform treasury wallet
     let fee_lamports = global_config.platform_fee_lamports;

@@ -371,11 +371,9 @@ describe('mint complete set', () => {
       .remainingAccounts(mintRemaining)
       .rpc({ skipPreflight: true });
 
-    const platformFee = Math.floor((AMOUNT.toNumber() * PLATFORM_FEE_BPS) / 10000);
-    const creatorFee = Math.floor((AMOUNT.toNumber() * CREATOR_FEE_BPS) / 10000);
-    const net = AMOUNT.toNumber() - platformFee - creatorFee;
+    const net = AMOUNT.toNumber();
 
-    // Vault should have received net collateral
+    // Vault should have received net collateral (instruction `amount` is net to vault)
     const vaultAfter = await getAccount(connection, vaultPda, undefined, TOKEN_PROGRAM_ID);
     assert.equal(
       Number(vaultAfter.amount) - Number(vaultBefore.amount),

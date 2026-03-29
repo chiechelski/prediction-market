@@ -4,37 +4,23 @@ import { PublicKey } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { fetchIdl } from '@/lib/program';
-import {
-  getRegisteredMarket,
-  registerMarket,
-  patchRegisteredMarket,
-  REGISTRY_CHANGED_EVENT,
-} from '@/lib/marketRegistry';
+import { getRegisteredMarket } from '@/lib/marketRegistry';
 import MarketSectorBanner from '@/components/MarketSectorBanner';
 import {
   fetchUserProfileReadOnly,
   type UserProfileData,
 } from '@/lib/marketActions';
 import { resolveCreatorDisplayName } from '@/lib/creatorIdentity';
-import { useToast } from '@/context/ToastContext';
 
 export default function MarketInfo() {
   const { marketKey } = useParams<{ marketKey: string }>();
   const { connection } = useConnection();
   const wallet = useWallet();
-  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chainTitle, setChainTitle] = useState('');
   const [chainCreator, setChainCreator] = useState('');
-  const [outcomeCount, setOutcomeCount] = useState(2);
   const [categoryName, setCategoryName] = useState<string | null>(null);
-
-  const [creatorDisplayName, setCreatorDisplayName] = useState('');
-  const [detailsText, setDetailsText] = useState('');
-  const [savedVersion, setSavedVersion] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [creatorProfile, setCreatorProfile] = useState<
     UserProfileData | null | undefined
   >(undefined);
@@ -59,7 +45,6 @@ export default function MarketInfo() {
       );
       setChainTitle(String(account.title ?? '').trim());
       setChainCreator((account.creator as PublicKey).toBase58());
-      setOutcomeCount(Number(account.outcomeCount) || 2);
       const catPk = account.category as PublicKey;
       if (catPk.equals(PublicKey.default)) {
         setCategoryName(null);
@@ -103,91 +88,18 @@ export default function MarketInfo() {
 
   const registry = marketKey ? getRegisteredMarket(marketKey) : undefined;
 
-  useEffect(() => {
-    setCreatorDisplayName(registry?.creatorDisplayName?.trim() ?? '');
-    setDetailsText(registry?.detailsText ?? '');
-  }, [registry, savedVersion]);
-
-  useEffect(() => {
-    function onReg() {
-      setSavedVersion((v) => v + 1);
-    }
-    window.addEventListener(REGISTRY_CHANGED_EVENT, onReg);
-    return () => window.removeEventListener(REGISTRY_CHANGED_EVENT, onReg);
-  }, []);
-
   const displayCategory = categoryName ?? registry?.category;
   const displayTitle =
     chainTitle || registry?.title?.trim() || `Market ${marketKey?.slice(0, 8)}…`;
 
   const creatorDisplayResolved = chainCreator
-    ? resolveCreatorDisplayName(
-        chainCreator,
-        creatorProfile,
-        registry?.creatorDisplayName
-      )
+    ? resolveCreatorDisplayName(chainCreator, creatorProfile)
     : '';
 
   const isCreator =
     wallet.publicKey != null &&
     chainCreator !== '' &&
     wallet.publicKey.toBase58() === chainCreator;
-
-  const handleSave = () => {
-    if (!marketKey || !registry || !isCreator) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const name = creatorDisplayName.trim();
-      const details = detailsText.trim();
-      patchRegisteredMarket(marketKey, {
-        creatorDisplayName: name || undefined,
-        detailsText: details || undefined,
-      });
-      toast.success('Listing details saved in this browser.');
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Save failed';
-      setSaveError(msg);
-      toast.error(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveNewRegistry = () => {
-    if (!marketKey || !wallet.publicKey || !isCreator) return;
-    const idStr = window.prompt(
-      'Enter the decimal market id from when this market was created (same as in your records). Required to save local metadata:'
-    );
-    if (idStr == null) return;
-    const marketId = idStr.trim();
-    if (!/^\d+$/.test(marketId)) {
-      setSaveError('Market id must be a decimal integer.');
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const defaultLabel = Array.from({ length: outcomeCount }, (_, i) => `Outcome ${i + 1}`).join(' / ');
-      registerMarket({
-        marketPda: marketKey,
-        creator: chainCreator,
-        marketId,
-        title: chainTitle || registry?.title,
-        category: displayCategory,
-        label: registry?.label ?? defaultLabel,
-        creatorDisplayName: creatorDisplayName.trim() || undefined,
-        detailsText: detailsText.trim() || undefined,
-      });
-      toast.success('Listing details saved in this browser.');
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Save failed';
-      setSaveError(msg);
-      toast.error(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -276,76 +188,13 @@ export default function MarketInfo() {
               </div>
             </div>
 
-            <div className="prose prose-invert max-w-none">
-              {registry?.detailsText?.trim() ? (
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface-variant">
-                  {registry.detailsText.trim()}
-                </div>
-              ) : (
-                <p className="text-sm text-outline italic">
-                  No extended description has been added for this market in this browser yet.
-                </p>
-              )}
-            </div>
-
             {isCreator && (
-              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-4">
-                <p className="text-sm font-semibold text-on-surface">
-                  {registry ? 'Edit local listing details' : 'Add local listing details'}
-                </p>
-                <p className="text-xs text-outline leading-relaxed">
-                  Display name and long description are stored only in this browser&apos;s registry (not on-chain).
-                </p>
-                <div>
-                  <label className="block text-xs font-medium text-outline">Creator display name</label>
-                  <input
-                    type="text"
-                    value={creatorDisplayName}
-                    onChange={(e) => setCreatorDisplayName(e.target.value)}
-                    placeholder="e.g. SportsOracle_V3"
-                    className="input mt-1 w-full"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-outline">Rules, context, links</label>
-                  <textarea
-                    value={detailsText}
-                    onChange={(e) => setDetailsText(e.target.value)}
-                    placeholder="Resolution sources, tie-breakers, official feeds…"
-                    className="input mt-1 min-h-[160px] w-full text-sm"
-                    rows={6}
-                  />
-                </div>
-                {saveError && (
-                  <p className="text-sm text-error">{saveError}</p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {registry ? (
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={handleSave}
-                      className="btn-primary disabled:opacity-50"
-                    >
-                      {saving ? 'Saving…' : 'Save'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={handleSaveNewRegistry}
-                      className="btn-primary disabled:opacity-50"
-                    >
-                      {saving ? 'Saving…' : 'Save (enter market id once)'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {!isCreator && wallet.publicKey && (
-              <p className="text-xs text-outline">
-                Connect as the market creator wallet to edit local details.
+              <p className="text-sm text-on-surface-variant">
+                Your display name and link are stored on-chain.{' '}
+                <Link to="/settings" className="font-medium text-primary hover:underline">
+                  Edit profile in Settings
+                </Link>
+                .
               </p>
             )}
           </div>
