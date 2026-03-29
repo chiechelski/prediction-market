@@ -112,31 +112,29 @@ class PredictionMarketClient {
         return { marketPda, sig };
     }
     /**
-     * Step 2 — Initialize up to 8 Resolver PDAs.
-     * Fill unused slots with `PublicKey.default`.
+     * Step 2 — Initialize resolver PDAs for slots `0..resolverPubkeys.length-1` in **one** transaction.
      */
-    async initializeMarketResolvers(marketPda, params, opts) {
-        const resolverPdas = (0, pda_1.deriveAllResolvers)(this.program.programId, marketPda);
-        return this.program.methods
-            .initializeMarketResolvers({
-            marketId: params.marketId,
-            resolverPubkeys: params.resolverPubkeys,
-            numResolvers: params.numResolvers,
-        })
-            .accounts({
-            payer: this.walletKey,
-            market: marketPda,
-            systemProgram: web3_js_1.SystemProgram.programId,
-            resolver0: resolverPdas[0],
-            resolver1: resolverPdas[1],
-            resolver2: resolverPdas[2],
-            resolver3: resolverPdas[3],
-            resolver4: resolverPdas[4],
-            resolver5: resolverPdas[5],
-            resolver6: resolverPdas[6],
-            resolver7: resolverPdas[7],
-        })
-            .rpc(opts ?? { skipPreflight: true });
+    async initializeMarketResolverSlots(marketPda, params, opts) {
+        const provider = this.program.provider;
+        const tx = new web3_js_1.Transaction();
+        const { marketId, resolverPubkeys } = params;
+        for (let i = 0; i < resolverPubkeys.length; i++) {
+            const ix = await this.program.methods
+                .initializeMarketResolver({
+                marketId,
+                resolverIndex: i,
+                resolverPubkey: resolverPubkeys[i],
+            })
+                .accounts({
+                payer: this.walletKey,
+                market: marketPda,
+                resolver: (0, pda_1.deriveResolver)(this.program.programId, marketPda, i),
+                systemProgram: web3_js_1.SystemProgram.programId,
+            })
+                .instruction();
+            tx.add(ix);
+        }
+        return await provider.sendAndConfirm(tx, undefined, opts ?? { skipPreflight: true });
     }
     /**
      * Step 3 — Initialize 8 Outcome Mints.
@@ -166,12 +164,13 @@ class PredictionMarketClient {
      * Convenience: run all 3 market creation steps in sequence.
      * Returns the market PDA.
      */
-    async createMarketFull(creator, collateralMint, creatorFeeAccount, resolverPubkeys, params, opts) {
+    async createMarketFull(creator, collateralMint, creatorFeeAccount, 
+    /** Length must equal `params.numResolvers` (typically the first N of an 8-slot UI). */
+    resolverPubkeys, params, opts) {
         const { marketPda } = await this.createMarket(creator, collateralMint, creatorFeeAccount, params, opts);
-        await this.initializeMarketResolvers(marketPda, {
+        await this.initializeMarketResolverSlots(marketPda, {
             marketId: params.marketId,
-            resolverPubkeys,
-            numResolvers: params.numResolvers,
+            resolverPubkeys: resolverPubkeys.slice(0, params.numResolvers),
         }, opts);
         if (params.marketType === 'parimutuel') {
             const gc = await this.fetchGlobalConfig();
@@ -383,7 +382,6 @@ class PredictionMarketClient {
      * call `revokeResolutionVote` first to change outcome (tally 1 → 0 → 1).
      */
     async voteResolution(marketPda, params, opts) {
-        const resolverPdas = (0, pda_1.deriveAllResolvers)(this.program.programId, marketPda);
         const votePda = (0, pda_1.deriveResolutionVote)(this.program.programId, marketPda, params.resolverIndex);
         const tallyPda = (0, pda_1.deriveOutcomeTally)(this.program.programId, marketPda, params.outcomeIndex);
         return this.program.methods
@@ -395,23 +393,15 @@ class PredictionMarketClient {
             .accounts({
             resolverSigner: this.walletKey,
             market: marketPda,
+            resolver: (0, pda_1.deriveResolver)(this.program.programId, marketPda, params.resolverIndex),
             resolutionVote: votePda,
             outcomeTally: tallyPda,
-            resolver0: resolverPdas[0],
-            resolver1: resolverPdas[1],
-            resolver2: resolverPdas[2],
-            resolver3: resolverPdas[3],
-            resolver4: resolverPdas[4],
-            resolver5: resolverPdas[5],
-            resolver6: resolverPdas[6],
-            resolver7: resolverPdas[7],
             systemProgram: web3_js_1.SystemProgram.programId,
         })
             .rpc(opts ?? { skipPreflight: true });
     }
     /** Clears the resolver’s active vote and decrements that outcome’s on-chain tally. */
     async revokeResolutionVote(marketPda, params, opts) {
-        const resolverPdas = (0, pda_1.deriveAllResolvers)(this.program.programId, marketPda);
         const votePda = (0, pda_1.deriveResolutionVote)(this.program.programId, marketPda, params.resolverIndex);
         const tallyPda = (0, pda_1.deriveOutcomeTally)(this.program.programId, marketPda, params.outcomeIndex);
         return this.program.methods
@@ -423,16 +413,9 @@ class PredictionMarketClient {
             .accounts({
             resolverSigner: this.walletKey,
             market: marketPda,
+            resolver: (0, pda_1.deriveResolver)(this.program.programId, marketPda, params.resolverIndex),
             resolutionVote: votePda,
             outcomeTally: tallyPda,
-            resolver0: resolverPdas[0],
-            resolver1: resolverPdas[1],
-            resolver2: resolverPdas[2],
-            resolver3: resolverPdas[3],
-            resolver4: resolverPdas[4],
-            resolver5: resolverPdas[5],
-            resolver6: resolverPdas[6],
-            resolver7: resolverPdas[7],
         })
             .rpc(opts ?? { skipPreflight: true });
     }
@@ -500,41 +483,25 @@ class PredictionMarketClient {
             .rpc(opts ?? { skipPreflight: true });
     }
     // ─── Market lifecycle ────────────────────────────────────────────────────────
-    /** Creator or any resolver can close the market before `close_at`. */
+    /** Market creator or global config authority can close the market before `close_at`. */
     async closeMarketEarly(marketPda, params, opts) {
-        const resolverPdas = (0, pda_1.deriveAllResolvers)(this.program.programId, marketPda);
         return this.program.methods
             .closeMarketEarly({ marketId: params.marketId })
             .accounts({
             signer: this.walletKey,
+            globalConfig: this.globalConfig,
             market: marketPda,
-            resolver0: resolverPdas[0],
-            resolver1: resolverPdas[1],
-            resolver2: resolverPdas[2],
-            resolver3: resolverPdas[3],
-            resolver4: resolverPdas[4],
-            resolver5: resolverPdas[5],
-            resolver6: resolverPdas[6],
-            resolver7: resolverPdas[7],
         })
             .rpc(opts ?? { skipPreflight: true });
     }
-    /** Void the market (cancel); enables full-set redemption for all holders. */
+    /** Void the market (cancel); enables full-set redemption for all holders. Creator or global authority only. */
     async voidMarket(marketPda, params, opts) {
-        const resolverPdas = (0, pda_1.deriveAllResolvers)(this.program.programId, marketPda);
         return this.program.methods
             .voidMarket({ marketId: params.marketId })
             .accounts({
             signer: this.walletKey,
+            globalConfig: this.globalConfig,
             market: marketPda,
-            resolver0: resolverPdas[0],
-            resolver1: resolverPdas[1],
-            resolver2: resolverPdas[2],
-            resolver3: resolverPdas[3],
-            resolver4: resolverPdas[4],
-            resolver5: resolverPdas[5],
-            resolver6: resolverPdas[6],
-            resolver7: resolverPdas[7],
         })
             .rpc(opts ?? { skipPreflight: true });
     }

@@ -17,7 +17,7 @@
  *   6008 CannotVoidResolvedMarket
  *   6009 InvalidOutcomeIndex
  *   6010 NotResolver
- *   6011 OnlyCreatorOrResolver
+ *   6011 OnlyCreatorOrGlobalAuthority
  *   6012 InvalidFeeBps
  *   6013 CloseAtMustBeInFuture
  *   6014 ZeroMintAmount
@@ -47,6 +47,9 @@ import {
   createMint,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
+  getOrCreateAssociatedTokenAccount,
+  getAccount,
+  mintTo,
 } from '@solana/spl-token';
 import { assert } from 'chai';
 import {
@@ -62,8 +65,12 @@ import {
   deriveAllOutcomeMints,
   deriveAllOutcomeTallies,
   deriveAllResolvers,
+  deriveResolver,
   deriveOutcomeTally,
   deriveResolutionVote,
+  deriveParimutuelState,
+  deriveParimutuelPosition,
+  initializeMarketResolverSlots,
 } from './test-helpers';
 
 // ─── Shared provider setup ───────────────────────────────────────────────────
@@ -148,16 +155,14 @@ async function createFullMarket(
     })
     .rpc({ skipPreflight: true });
 
-  const resolverKeys = [...resolverPubkeys, ...Array(8 - resolverPubkeys.length).fill(PublicKey.default)] as any;
-  await program.methods
-    .initializeMarketResolvers({ marketId, resolverPubkeys: resolverKeys, numResolvers })
-    .accounts({
-      payer: payer.publicKey, market: marketPda, systemProgram: SystemProgram.programId,
-      resolver0: resolverPdas[0], resolver1: resolverPdas[1], resolver2: resolverPdas[2],
-      resolver3: resolverPdas[3], resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
-    })
-    .rpc({ skipPreflight: true });
+  await initializeMarketResolverSlots(
+    program,
+    connection,
+    [payer.payer],
+    marketPda,
+    marketId,
+    resolverPubkeys.slice(0, numResolvers)
+  );
 
   await program.methods
     .initializeMarketMints({ marketId })
@@ -427,6 +432,387 @@ describe('edge-cases: token-2022 collateral', () => {
       'token-2022 collateral mint should be stored on market'
     );
   });
+
+  it('parimutuel stake credits pool (vault + ATAs are Token-2022)', async () => {
+    const mint2022 = await createMint(
+      connection,
+      payer.payer,
+      payer.publicKey,
+      null,
+      COLLATERAL_DECIMALS,
+      undefined,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const allowed2022Pda = deriveAllowedMint(program.programId, mint2022);
+
+    await program.methods
+      .addAllowedCollateralMint()
+      .accounts({
+        allowedMint: allowed2022Pda,
+        globalConfig: globalConfigPda,
+        authority: payer.publicKey,
+        mint: mint2022,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+
+    const payerAta2022 = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer.payer,
+      mint2022,
+      payer.publicKey,
+      false,
+      undefined,
+      { commitment: 'confirmed', skipPreflight: true },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const treasuryAta2022 = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer.payer,
+      mint2022,
+      userKeypair.publicKey,
+      false,
+      undefined,
+      { commitment: 'confirmed', skipPreflight: true },
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    await mintTo(
+      connection,
+      payer.payer,
+      mint2022,
+      payerAta2022.address,
+      payer.publicKey,
+      BigInt(50) * BigInt(10 ** COLLATERAL_DECIMALS),
+      [],
+      { skipPreflight: true, commitment: 'confirmed' },
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const marketId = newMarketId();
+    const marketPda = deriveMarket(program.programId, payer.publicKey, marketId);
+    const vaultPda = deriveVault(program.programId, marketPda);
+    const pariStatePda = deriveParimutuelState(program.programId, marketPda);
+    const posPda = deriveParimutuelPosition(
+      program.programId,
+      marketPda,
+      payer.publicKey,
+      0
+    );
+
+    await program.methods
+      .createMarket({
+        marketId,
+        outcomeCount: 2,
+        resolutionThreshold: 1,
+        closeAt: new BN(Math.floor(Date.now() / 1000) + 7200),
+        creatorFeeBps: 0,
+        depositPlatformFeeBps: 0,
+        numResolvers: 1,
+        title: 'Pari token-2022',
+        marketType: { parimutuel: {} },
+      })
+      .accounts({
+        payer: payer.publicKey,
+        market: marketPda,
+        vault: vaultPda,
+        collateralMint: mint2022,
+        creator: payer.publicKey,
+        creatorFeeAccount: payerAta2022.address,
+        globalConfig: globalConfigPda,
+        allowedMint: allowed2022Pda,
+        marketCategory: null,
+        collateralTokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+
+    await initializeMarketResolverSlots(
+      program,
+      connection,
+      [payer.payer],
+      marketPda,
+      marketId,
+      [resolverKeypair.publicKey]
+    );
+
+    const gc = await program.account.globalConfig.fetch(globalConfigPda);
+    const gcAny = gc as Record<string, unknown>;
+    const protocolShare = Number(
+      gcAny.parimutuelPenaltyProtocolShareBps ??
+        gcAny.parimutuel_penalty_protocol_share_bps ??
+        0
+    );
+
+    await program.methods
+      .initializeParimutuelState({
+        marketId,
+        earlyWithdrawPenaltyBps: 500,
+        penaltyKeptInPoolBps: 8000,
+        penaltySurplusCreatorShareBps: 10000 - protocolShare,
+      })
+      .accounts({
+        payer: payer.publicKey,
+        market: marketPda,
+        globalConfig: globalConfigPda,
+        parimutuelState: pariStatePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+
+    const stakeAmount = new BN(1_000_000);
+    await program.methods
+      .parimutuelStake({
+        marketId,
+        outcomeIndex: 0,
+        amount: stakeAmount,
+      })
+      .accounts({
+        user: payer.publicKey,
+        market: marketPda,
+        parimutuelState: pariStatePda,
+        position: posPda,
+        vault: vaultPda,
+        collateralMint: mint2022,
+        userCollateralAccount: payerAta2022.address,
+        creatorFeeAccount: payerAta2022.address,
+        globalConfig: globalConfigPda,
+        platformTreasuryWallet: userKeypair.publicKey,
+        platformTreasuryAta: treasuryAta2022.address,
+        allowedMint: allowed2022Pda,
+        collateralTokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+
+    const pari = await program.account.parimutuelState.fetch(pariStatePda);
+    assert.equal(pari.totalPool.toString(), stakeAmount.toString());
+    const vaultBal = await getAccount(
+      connection,
+      vaultPda,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    assert.equal(vaultBal.amount.toString(), stakeAmount.toString());
+  });
+
+  it('mint complete set with token-2022 collateral (outcome mints stay SPL)', async () => {
+    const mint2022 = await createMint(
+      connection,
+      payer.payer,
+      payer.publicKey,
+      null,
+      COLLATERAL_DECIMALS,
+      undefined,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const allowed2022Pda = deriveAllowedMint(program.programId, mint2022);
+
+    await program.methods
+      .addAllowedCollateralMint()
+      .accounts({
+        allowedMint: allowed2022Pda,
+        globalConfig: globalConfigPda,
+        authority: payer.publicKey,
+        mint: mint2022,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+
+    const payerAta2022 = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer.payer,
+      mint2022,
+      payer.publicKey,
+      false,
+      undefined,
+      { commitment: 'confirmed', skipPreflight: true },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const treasuryAta2022Cs = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer.payer,
+      mint2022,
+      userKeypair.publicKey,
+      false,
+      undefined,
+      { commitment: 'confirmed', skipPreflight: true },
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    await mintTo(
+      connection,
+      payer.payer,
+      mint2022,
+      payerAta2022.address,
+      payer.publicKey,
+      BigInt(100) * BigInt(10 ** COLLATERAL_DECIMALS),
+      [],
+      { skipPreflight: true, commitment: 'confirmed' },
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const marketId = newMarketId();
+    const marketPda = deriveMarket(program.programId, payer.publicKey, marketId);
+    const vaultPda = deriveVault(program.programId, marketPda);
+    const outcomeMints = deriveAllOutcomeMints(program.programId, marketPda);
+
+    await program.methods
+      .createMarket({
+        marketId,
+        outcomeCount: 2,
+        resolutionThreshold: 1,
+        closeAt: new BN(Math.floor(Date.now() / 1000) + 7200),
+        creatorFeeBps: 0,
+        depositPlatformFeeBps: 0,
+        numResolvers: 1,
+        title: 'CS token-2022',
+        marketType: { completeSet: {} },
+      })
+      .accounts({
+        payer: payer.publicKey,
+        market: marketPda,
+        vault: vaultPda,
+        collateralMint: mint2022,
+        creator: payer.publicKey,
+        creatorFeeAccount: payerAta2022.address,
+        globalConfig: globalConfigPda,
+        allowedMint: allowed2022Pda,
+        marketCategory: null,
+        collateralTokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc({ skipPreflight: true });
+
+    await initializeMarketResolverSlots(
+      program,
+      connection,
+      [payer.payer],
+      marketPda,
+      marketId,
+      [resolverKeypair.publicKey]
+    );
+
+    await program.methods
+      .initializeMarketMints({ marketId })
+      .accounts({
+        payer: payer.publicKey,
+        market: marketPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        outcomeMint0: outcomeMints[0],
+        outcomeMint1: outcomeMints[1],
+        outcomeMint2: outcomeMints[2],
+        outcomeMint3: outcomeMints[3],
+        outcomeMint4: outcomeMints[4],
+        outcomeMint5: outcomeMints[5],
+        outcomeMint6: outcomeMints[6],
+        outcomeMint7: outcomeMints[7],
+      })
+      .rpc({ skipPreflight: true });
+
+    const payerOutcomeAtas = outcomeMints.map((m) =>
+      getAssociatedTokenAddressSync(
+        m,
+        payer.publicKey,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+    );
+    const createOutcomeAtaIxs: ReturnType<
+      typeof createAssociatedTokenAccountInstruction
+    >[] = [];
+    for (let i = 0; i < 2; i++) {
+      const ata = payerOutcomeAtas[i]!;
+      const info = await connection.getAccountInfo(ata);
+      if (!info) {
+        createOutcomeAtaIxs.push(
+          createAssociatedTokenAccountInstruction(
+            payer.publicKey,
+            ata,
+            payer.publicKey,
+            outcomeMints[i]!,
+            TOKEN_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )
+        );
+      }
+    }
+    if (createOutcomeAtaIxs.length) {
+      await sendAndConfirmTransaction(
+        connection,
+        new Transaction().add(...createOutcomeAtaIxs),
+        [payer.payer],
+        { skipPreflight: true }
+      );
+    }
+
+    const AMOUNT = new BN(5 * 10 ** COLLATERAL_DECIMALS);
+    const vaultBefore = await getAccount(
+      connection,
+      vaultPda,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const mintRemaining = [
+      { pubkey: outcomeMints[0], isSigner: false, isWritable: true },
+      { pubkey: payerOutcomeAtas[0], isSigner: false, isWritable: true },
+      { pubkey: outcomeMints[1], isSigner: false, isWritable: true },
+      { pubkey: payerOutcomeAtas[1], isSigner: false, isWritable: true },
+    ];
+
+    await program.methods
+      .mintCompleteSet({ amount: AMOUNT, marketId })
+      .accountsStrict({
+        user: payer.publicKey,
+        market: marketPda,
+        vault: vaultPda,
+        collateralMint: mint2022,
+        userCollateralAccount: payerAta2022.address,
+        creatorFeeAccount: payerAta2022.address,
+        globalConfig: globalConfigPda,
+        allowedMint: allowed2022Pda,
+        platformTreasuryWallet: userKeypair.publicKey,
+        platformTreasuryAta: treasuryAta2022Cs.address,
+        collateralTokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(mintRemaining)
+      .rpc({ skipPreflight: true });
+
+    const vaultAfter = await getAccount(
+      connection,
+      vaultPda,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    assert.equal(
+      Number(vaultAfter.amount) - Number(vaultBefore.amount),
+      AMOUNT.toNumber(),
+      'Token-2022 vault should increase by net mint amount'
+    );
+    for (let i = 0; i < 2; i++) {
+      const ata = await getAccount(
+        connection,
+        payerOutcomeAtas[i]!,
+        undefined,
+        TOKEN_PROGRAM_ID
+      );
+      assert.equal(
+        Number(ata.amount),
+        AMOUNT.toNumber(),
+        `SPL outcome ${i} ATA balance`
+      );
+    }
+  });
 });
 
 describe('edge-cases: create market', () => {
@@ -579,11 +965,9 @@ describe('edge-cases: minting', () => {
     await program.methods
       .closeMarketEarly({ marketId })
       .accounts({
-        signer: payer.publicKey, market: marketPda,
-        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+        signer: payer.publicKey,
+        globalConfig: globalConfigPda,
+        market: marketPda,
       })
       .rpc({ skipPreflight: true });
 
@@ -622,10 +1006,7 @@ describe('edge-cases: resolution — vote', () => {
           resolverSigner: stranger.publicKey, market: marketPda,
           resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
           outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
-          resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-          resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-          resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-          resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+          resolver: deriveResolver(program.programId, marketPda, 0),
           systemProgram: SystemProgram.programId,
         })
         .signers([stranger])
@@ -647,10 +1028,7 @@ describe('edge-cases: resolution — vote', () => {
           resolverSigner: resolverKeypair.publicKey, market: marketPda,
           resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
           outcomeTally: deriveOutcomeTally(program.programId, marketPda, 5),
-          resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-          resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-          resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-          resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+          resolver: deriveResolver(program.programId, marketPda, 0),
           systemProgram: SystemProgram.programId,
         })
         .signers([resolverKeypair])
@@ -672,10 +1050,7 @@ describe('edge-cases: resolution — vote', () => {
         resolverSigner: resolverKeypair.publicKey, market: marketPda,
         resolutionVote: votePda,
         outcomeTally: deriveOutcomeTally(program.programId, marketPda, 2),
-        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         systemProgram: SystemProgram.programId,
       })
       .signers([resolverKeypair])
@@ -697,14 +1072,7 @@ describe('edge-cases: resolution — vote', () => {
       market: marketPda,
       resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
       outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
-      resolver0: resolverPdas[0],
-      resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2],
-      resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4],
-      resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6],
-      resolver7: resolverPdas[7],
+      resolver: deriveResolver(program.programId, marketPda, 0),
       systemProgram: SystemProgram.programId,
     };
 
@@ -740,14 +1108,7 @@ describe('edge-cases: resolution — vote', () => {
       resolverSigner: resolverKeypair.publicKey,
       market: marketPda,
       resolutionVote: votePda,
-      resolver0: resolverPdas[0],
-      resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2],
-      resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4],
-      resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6],
-      resolver7: resolverPdas[7],
+      resolver: deriveResolver(program.programId, marketPda, 0),
       systemProgram: SystemProgram.programId,
     };
 
@@ -764,14 +1125,7 @@ describe('edge-cases: resolution — vote', () => {
         market: marketPda,
         resolutionVote: votePda,
         outcomeTally: tally0,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
       })
       .signers([resolverKeypair])
       .rpc({ skipPreflight: true });
@@ -808,10 +1162,7 @@ describe('edge-cases: resolution — vote', () => {
         resolverSigner: resolverKeypair.publicKey, market: marketPda,
         resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
         outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
-        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         systemProgram: SystemProgram.programId,
       })
       .signers([resolverKeypair])
@@ -871,10 +1222,7 @@ describe('edge-cases: void market', () => {
         resolverSigner: resolverKeypair.publicKey, market: marketPda,
         resolutionVote: deriveResolutionVote(program.programId, marketPda, 0),
         outcomeTally: deriveOutcomeTally(program.programId, marketPda, 0),
-        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         systemProgram: SystemProgram.programId,
       })
       .signers([resolverKeypair])
@@ -892,11 +1240,9 @@ describe('edge-cases: void market', () => {
       await program.methods
         .voidMarket({ marketId })
         .accounts({
-          signer: payer.publicKey, market: marketPda,
-          resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-          resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-          resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-          resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+          signer: payer.publicKey,
+          globalConfig: globalConfigPda,
+          market: marketPda,
         })
         .rpc({ skipPreflight: true });
     }, 6008, 'CannotVoidResolvedMarket');
@@ -913,11 +1259,9 @@ describe('edge-cases: void market', () => {
     await program.methods
       .voidMarket({ marketId })
       .accounts({
-        signer: payer.publicKey, market: marketPda,
-        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+        signer: payer.publicKey,
+        globalConfig: globalConfigPda,
+        market: marketPda,
       })
       .rpc({ skipPreflight: true });
 
@@ -953,11 +1297,9 @@ describe('edge-cases: void market', () => {
     await program.methods
       .voidMarket({ marketId })
       .accounts({
-        signer: payer.publicKey, market: marketPda,
-        resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+        signer: payer.publicKey,
+        globalConfig: globalConfigPda,
+        market: marketPda,
       })
       .rpc({ skipPreflight: true });
 
@@ -978,14 +1320,29 @@ describe('edge-cases: void market', () => {
       await program.methods
         .voidMarket({ marketId })
         .accounts({
-          signer: stranger.publicKey, market: marketPda,
-          resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-          resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-          resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-          resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+          signer: stranger.publicKey,
+          globalConfig: globalConfigPda,
+          market: marketPda,
         })
         .signers([stranger])
         .rpc({ skipPreflight: true });
-    }, 6011, 'OnlyCreatorOrResolver');
+    }, 6011, 'OnlyCreatorOrGlobalAuthority');
+  });
+
+  it('resolver cannot void market (only creator or global authority)', async () => {
+    const marketId = newMarketId();
+    const { marketPda } = await createFullMarket(marketId);
+
+    await assertErrorCode(async () => {
+      await program.methods
+        .voidMarket({ marketId })
+        .accounts({
+          signer: resolverKeypair.publicKey,
+          globalConfig: globalConfigPda,
+          market: marketPda,
+        })
+        .signers([resolverKeypair])
+        .rpc({ skipPreflight: true });
+    }, 6011, 'OnlyCreatorOrGlobalAuthority');
   });
 });

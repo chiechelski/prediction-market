@@ -269,7 +269,7 @@ Program ID: `C5QvWnGHeC6o7N68heWFKPvC35eggZ9Mrgqzj86WwrBv`
 | `add_allowed_collateral_mint` | `addAllowedCollateralMint` | Platform page |
 | `remove_allowed_collateral_mint` | `removeAllowedCollateralMint` | Platform page |
 | `create_market` | `createMarket` | Create page (step 1) |
-| `initialize_market_resolvers` | `initializeMarketResolvers` | Create page (step 2) |
+| `initialize_market_resolver` | `initializeMarketResolverSlots` | Create page (step 2, batched) |
 | `initialize_market_mints` | `initializeMarketMints` | Create page (step 3) |
 | `mint_complete_set` | `mintCompleteSet` | Market detail — Trade |
 | `redeem_complete_set` | `redeemCompleteSet` | Market detail — Trade |

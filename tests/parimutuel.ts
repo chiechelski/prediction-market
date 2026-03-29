@@ -21,9 +21,11 @@ import {
   deriveAllOutcomeTallies,
   deriveResolutionVote,
   deriveOutcomeTally,
+  deriveResolver,
   deriveParimutuelState,
   deriveParimutuelPosition,
   deriveAllOutcomeMints,
+  initializeMarketResolverSlots,
 } from './test-helpers';
 
 const provider = anchor.AnchorProvider.env();
@@ -135,6 +137,15 @@ async function setupPariMarket(marketId: BN) {
     })
     .rpc({ skipPreflight: true });
 
+  await initializeMarketResolverSlots(
+    program,
+    connection,
+    [payer.payer],
+    marketPda,
+    marketId,
+    [resolverKeypair.publicKey]
+  );
+
   await program.methods
     .initializeParimutuelState({
       marketId,
@@ -148,32 +159,6 @@ async function setupPariMarket(marketId: BN) {
       globalConfig: globalConfigPda,
       parimutuelState: pariStatePda,
       systemProgram: SystemProgram.programId,
-    })
-    .rpc({ skipPreflight: true });
-
-  const resolverPubkeys = [
-    resolverKeypair.publicKey,
-    ...Array(7).fill(PublicKey.default),
-  ] as [PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey];
-
-  await program.methods
-    .initializeMarketResolvers({
-      marketId,
-      resolverPubkeys,
-      numResolvers: 1,
-    })
-    .accounts({
-      payer: payer.publicKey,
-      market: marketPda,
-      systemProgram: SystemProgram.programId,
-      resolver0: resolverPdas[0],
-      resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2],
-      resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4],
-      resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6],
-      resolver7: resolverPdas[7],
     })
     .rpc({ skipPreflight: true });
 
@@ -228,15 +213,8 @@ describe('parimutuel market', () => {
       .closeMarketEarly({ marketId: pariMarketId })
       .accounts({
         signer: payer.publicKey,
+        globalConfig: globalConfigPda,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       })
       .rpc({ skipPreflight: true });
 
@@ -245,17 +223,10 @@ describe('parimutuel market', () => {
 
     await program.methods
       .voteResolution({ marketId: pariMarketId, resolverIndex: 0, outcomeIndex: 0 })
-      .accountsStrict({
+      .accounts({
         resolverSigner: resolverKeypair.publicKey,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         resolutionVote: votePda,
         outcomeTally: tally0,
         systemProgram: SystemProgram.programId,
@@ -460,15 +431,8 @@ describe('parimutuel market', () => {
       .closeMarketEarly({ marketId })
       .accounts({
         signer: payer.publicKey,
+        globalConfig: globalConfigPda,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       })
       .rpc({ skipPreflight: true });
 
@@ -477,17 +441,10 @@ describe('parimutuel market', () => {
 
     await program.methods
       .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
-      .accountsStrict({
+      .accounts({
         resolverSigner: resolverKeypair.publicKey,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         resolutionVote: votePda,
         outcomeTally: tally0,
         systemProgram: SystemProgram.programId,
@@ -578,15 +535,8 @@ describe('parimutuel market', () => {
       .closeMarketEarly({ marketId })
       .accounts({
         signer: payer.publicKey,
+        globalConfig: globalConfigPda,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       })
       .rpc({ skipPreflight: true });
 
@@ -595,17 +545,10 @@ describe('parimutuel market', () => {
 
     await program.methods
       .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
-      .accountsStrict({
+      .accounts({
         resolverSigner: resolverKeypair.publicKey,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         resolutionVote: votePda,
         outcomeTally: tally0,
         systemProgram: SystemProgram.programId,
@@ -717,15 +660,8 @@ describe('parimutuel market', () => {
       .closeMarketEarly({ marketId })
       .accounts({
         signer: payer.publicKey,
+        globalConfig: globalConfigPda,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       })
       .rpc({ skipPreflight: true });
 
@@ -734,17 +670,10 @@ describe('parimutuel market', () => {
 
     await program.methods
       .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
-      .accountsStrict({
+      .accounts({
         resolverSigner: resolverKeypair.publicKey,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         resolutionVote: votePda,
         outcomeTally: tally0,
         systemProgram: SystemProgram.programId,

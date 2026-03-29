@@ -21,6 +21,8 @@ pub struct Market {
     pub resolved_outcome_index: Option<u8>,
     pub voided: bool,
     pub resolution_threshold: u8,
+    /// Set at creation; this many resolver PDAs must be initialized (slots `0..num_resolvers-1`).
+    pub num_resolvers: u8,
     pub creator: Pubkey,
     pub creator_fee_bps: u16,
     pub creator_fee_account: Pubkey,
@@ -83,6 +85,7 @@ mod tests {
             resolved_outcome_index: Some(0),
             voided: false,
             resolution_threshold: 1,
+            num_resolvers: 2,
             creator: Pubkey::new_unique(),
             creator_fee_bps: 0,
             creator_fee_account: Pubkey::new_unique(),

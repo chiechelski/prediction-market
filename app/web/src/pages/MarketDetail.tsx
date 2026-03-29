@@ -24,6 +24,7 @@ import {
   redeemWinningTx,
   findResolverSlot,
   fetchResolutionVoteState,
+  fetchOutcomeTallyCounts,
   isParimutuelMarket,
   parimutuelStakeTx,
   parimutuelWithdrawTx,
@@ -123,6 +124,10 @@ export default function MarketDetail() {
   >(null);
   /** Bumps after any successful tx so read-only chain data (e.g. resolution vote) refetches. */
   const [chainRefreshVersion, setChainRefreshVersion] = useState(0);
+  /** Outcome tally counts 0–7; null until loaded. Used to gate finalize (M-of-N). */
+  const [outcomeTallyCounts, setOutcomeTallyCounts] = useState<number[] | null>(null);
+  /** Primary or secondary `global_config` authority (for close early / void). */
+  const [isGlobalConfigAuthority, setIsGlobalConfigAuthority] = useState(false);
   const [resolvedCategoryName, setResolvedCategoryName] = useState<
     string | null
   >(null);
@@ -282,6 +287,70 @@ export default function MarketDetail() {
       cancelled = true;
     };
   }, [connection, marketKey, resolverSlot, chainRefreshVersion]);
+
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      setIsGlobalConfigAuthority(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const idl = await fetchIdl();
+        const dummy = {
+          publicKey: new PublicKey('11111111111111111111111111111111'),
+          signTransaction: async (t: unknown) => t,
+          signAllTransactions: async (ts: unknown) => ts,
+        };
+        const provider = new AnchorProvider(connection, dummy as any, {
+          commitment: 'confirmed',
+        });
+        const program = new Program(idl, provider);
+        const gcPda = deriveGlobalConfig(program.programId);
+        const info = await connection.getAccountInfo(gcPda);
+        if (!info || cancelled) {
+          if (!cancelled) setIsGlobalConfigAuthority(false);
+          return;
+        }
+        const gc = await (program.account as any).globalConfig.fetch(gcPda);
+        if (cancelled) return;
+        const auth = gc.authority as PublicKey;
+        const sec = gc.secondaryAuthority as PublicKey;
+        const pk = wallet.publicKey!;
+        const defaultPk = new PublicKey('11111111111111111111111111111111');
+        const isPrimary = auth.equals(pk);
+        const isSecondary = !sec.equals(defaultPk) && sec.equals(pk);
+        setIsGlobalConfigAuthority(isPrimary || isSecondary);
+      } catch {
+        if (!cancelled) setIsGlobalConfigAuthority(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, wallet.publicKey, chainRefreshVersion]);
+
+  useEffect(() => {
+    if (!marketKey || !market) {
+      setOutcomeTallyCounts(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const counts = await fetchOutcomeTallyCounts(
+          connection,
+          new PublicKey(marketKey)
+        );
+        if (!cancelled) setOutcomeTallyCounts(counts);
+      } catch {
+        if (!cancelled) setOutcomeTallyCounts(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, marketKey, market, chainRefreshVersion]);
 
   useEffect(() => {
     if (resolutionVoteState?.hasVoted) {
@@ -453,6 +522,15 @@ export default function MarketDetail() {
     // payout = userStake * totalPool / winPool
     return userStake.mul(totalPool).div(winPool);
   }, [market, pariState, pariStakesByOutcome]);
+
+  /** Matches `finalize_resolution`: needs some outcome tally ≥ resolution_threshold. */
+  const talliesMeetResolutionThreshold = useMemo(() => {
+    if (!market || !outcomeTallyCounts) return false;
+    const oc = Number(market.outcomeCount);
+    const th = Number(market.resolutionThreshold);
+    if (!Number.isFinite(oc) || !Number.isFinite(th) || oc <= 0 || th <= 0) return false;
+    return outcomeTallyCounts.slice(0, oc).some((c) => c >= th);
+  }, [market, outcomeTallyCounts]);
 
   const marketIdBn = effectiveMarketId
     ? new BN(effectiveMarketId, 10)
@@ -645,6 +723,10 @@ export default function MarketDetail() {
 
   const handleFinalize = async () => {
     if (!marketKey || !marketIdBn) return;
+    if (!talliesMeetResolutionThreshold) {
+      setTxError('Not enough matching resolver votes on-chain to finalize yet.');
+      return;
+    }
     await run(
       () =>
         finalizeResolutionTx(
@@ -841,6 +923,8 @@ export default function MarketDetail() {
     !market.voided &&
     resolvedWinnerIdx === null &&
     (status === 'open' || status === 'closing-soon');
+  /** Matches on-chain `!market.closed`: still tradable while close is in the future (incl. UI “closing soon”). */
+  const marketAcceptsCollateral = status === 'open' || status === 'closing-soon';
   const sectorSlug = inferMarketSectorSlug(displayCategory ?? undefined);
   const breadcrumbTitle =
     displayTitle.length > 52 ? `${displayTitle.slice(0, 49)}…` : displayTitle;
@@ -851,6 +935,10 @@ export default function MarketDetail() {
       : pariGlobalDepositFeeBps;
 
   const creatorPk = (market.creator as PublicKey).toBase58();
+  const isMarketCreator =
+    !!wallet.publicKey && (market.creator as PublicKey).equals(wallet.publicKey);
+  /** On-chain: `close_market_early` / `void_market` — creator or global config authority only. */
+  const canCloseOrVoidMarket = isMarketCreator || isGlobalConfigAuthority;
   const shortAddr = (pk: string) => `${pk.slice(0, 4)}…${pk.slice(-4)}`;
   const creatorLabel = resolveCreatorDisplayName(creatorPk, creatorProfile);
   const creatorNamed = creatorLabel !== shortAddr(creatorPk);
@@ -1058,7 +1146,7 @@ export default function MarketDetail() {
                   </div>
                   <button
                     type="button"
-                    disabled={busy || status !== 'open'}
+                    disabled={busy || !marketAcceptsCollateral}
                     onClick={handleMint}
                     className="btn-primary disabled:opacity-50"
                   >
@@ -1449,7 +1537,7 @@ export default function MarketDetail() {
                     )}
                     <button
                       type="button"
-                      disabled={busy || status !== 'open' || !pariStakeFeePreview}
+                      disabled={busy || !marketAcceptsCollateral || !pariStakeFeePreview}
                       onClick={handlePariStake}
                       className="btn-primary mt-4 w-full py-3 text-base font-bold shadow-lg shadow-primary/20 disabled:opacity-50"
                     >
@@ -1572,7 +1660,7 @@ export default function MarketDetail() {
                             {pariPositionStake !== null && market && pariPositionStake.gtn(0) && (
                               <button
                                 type="button"
-                                disabled={busy || status !== 'open'}
+                                disabled={busy || !marketAcceptsCollateral}
                                 onClick={() =>
                                   setPariWithdrawHuman(
                                     formatRawCollateralAmount(
@@ -1659,7 +1747,7 @@ export default function MarketDetail() {
                           type="button"
                           disabled={
                             busy ||
-                            status !== 'open' ||
+                            !marketAcceptsCollateral ||
                             !pariPositionStake ||
                             !pariPositionStake.gtn(0) ||
                             pariWithdrawExceedsActiveStake
@@ -1910,13 +1998,33 @@ export default function MarketDetail() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy || resolvedWinnerIdx !== null}
+                  disabled={
+                    busy ||
+                    resolvedWinnerIdx !== null ||
+                    market.voided ||
+                    outcomeTallyCounts === null ||
+                    !talliesMeetResolutionThreshold
+                  }
                   onClick={handleFinalize}
                   className="btn-secondary disabled:opacity-50"
                 >
                   Finalize resolution
                 </button>
               </div>
+              {outcomeTallyCounts !== null &&
+                !talliesMeetResolutionThreshold &&
+                resolvedWinnerIdx === null &&
+                !market.voided && (
+                  <p className="mt-3 text-xs text-outline leading-relaxed">
+                    Finalize stays off until at least{' '}
+                    <span className="font-semibold text-on-surface-variant">
+                      {Number(market.resolutionThreshold)}
+                    </span>{' '}
+                    resolver
+                    {Number(market.resolutionThreshold) === 1 ? '' : 's'} record the same outcome
+                    (on-chain tally).
+                  </p>
+                )}
             </details>
 
             {resolvedWinnerIdx === null && !market.voided && (
@@ -1926,13 +2034,24 @@ export default function MarketDetail() {
                   <span className="material-symbols-outlined text-[20px] text-outline transition-transform group-open:rotate-90">
                     chevron_right
                   </span>
-                  Creator &amp; admin
+                  Close early or void
                 </span>
               </summary>
+              <p className="mt-2 text-sm text-on-surface-variant leading-relaxed">
+                On-chain, only the <strong className="text-on-surface">market creator</strong> or a{' '}
+                <strong className="text-on-surface">global config authority</strong> (primary or
+                secondary) can trigger these actions. Assigned resolvers cannot close or void a market.
+              </p>
+              {!canCloseOrVoidMarket && (
+                <p className="mt-2 text-xs text-outline">
+                  Your connected wallet is not the creator and is not a global config authority, so
+                  transactions would fail if you tried.
+                </p>
+              )}
               <div className="mt-3 flex flex-wrap gap-3">
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !canCloseOrVoidMarket}
                   onClick={handleCloseEarly}
                   className="btn-secondary disabled:opacity-50"
                 >
@@ -1940,7 +2059,7 @@ export default function MarketDetail() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !canCloseOrVoidMarket}
                   onClick={handleVoid}
                   className="btn-secondary disabled:opacity-50"
                 >

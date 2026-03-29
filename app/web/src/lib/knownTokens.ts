@@ -6,8 +6,9 @@
  * attempted for mints that are NOT listed here.
  *
  * ─── How to add your local test mint ───────────────────────────────────────
- *   1. Run `yarn script:usdc` once — the mint address is printed at the end
- *      and saved to prediction_market/tests/keys/test-usdc-mint.json.
+ *   1. Run `yarn script:token2022` (Token-2022 + metadata) or `yarn script:spl-token`
+ *      (classic SPL Token). The mint address is printed at the end; keypairs live in
+ *      `prediction_market/tests/keys/test-usdc-mint.json` or `test-usdc-spl-mint.json`.
  *   2. Add an entry to LOCAL_TEST_TOKENS below with that address.
  * ────────────────────────────────────────────────────────────────────────────
  */
@@ -20,6 +21,10 @@ export type KnownToken = {
   color: string;
   /** Override the character(s) shown inside the circle. Defaults to first char of symbol. */
   logoChar?: string;
+  /**
+   * Which program owns the mint on-chain. Used for badges / fallbacks; omit defaults to classic SPL.
+   */
+  tokenProgram?: 'spl-token' | 'token-2022';
 };
 
 // ─── Mainnet tokens ──────────────────────────────────────────────────────────
@@ -71,17 +76,26 @@ const DEVNET_TOKENS: Record<string, KnownToken> = {
 };
 
 // ─── Local / custom test tokens ───────────────────────────────────────────────
-// The address below is the keypair saved in tests/keys/test-usdc-mint.json.
-// If you reset the validator AND delete that file a new address will be
-// generated — just replace the key here with the new address printed by
-// `yarn script:usdc`.
+// Addresses match committed keypairs under tests/keys/. If you delete a keypair file
+// and regenerate, update the corresponding entry with the printed mint address.
 const LOCAL_TEST_TOKENS: Record<string, KnownToken> = {
+  // tests/keys/test-usdc-mint.json — yarn script:token2022
   '5FRiaWLHiYPiF8LSPHV5eaR2Ehy62V2Kh1SwUGRvd555': {
     symbol: 'tUSDC',
     name: 'Test USD Coin',
     decimals: 6,
     color: '#0d9488',
     logoChar: '$',
+    tokenProgram: 'token-2022',
+  },
+  // tests/keys/test-usdc-spl-mint.json — yarn script:spl-token
+  HExyY9jhGJK83yNTyxKHHxzCcrRrNsTm7qCLC98koWiw: {
+    symbol: 'sUSDC',
+    name: 'Synthetic USDC (local SPL)',
+    decimals: 6,
+    color: '#0369a1',
+    logoChar: '$',
+    tokenProgram: 'spl-token',
   },
 };
 

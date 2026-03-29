@@ -59,14 +59,17 @@ export function toMarketTypeIx(
   return { completeSet: {} };
 }
 
-export interface InitializeMarketResolversParams {
+/** One `initialize_market_resolver` per slot; use `initializeMarketResolverSlots` to batch. */
+export interface InitializeMarketResolverSlotParams {
   marketId: BN;
-  /** Exactly 8 pubkeys; slots beyond numResolvers should be PublicKey.default. */
-  resolverPubkeys: [
-    PublicKey, PublicKey, PublicKey, PublicKey,
-    PublicKey, PublicKey, PublicKey, PublicKey,
-  ];
-  numResolvers: number;
+  resolverIndex: number;
+  resolverPubkey: PublicKey;
+}
+
+export interface InitializeMarketResolverSlotsParams {
+  marketId: BN;
+  /** Length must equal `numResolvers` from create market. */
+  resolverPubkeys: PublicKey[];
 }
 
 /** Pari-mutuel pool account (after `createMarket` with `marketType: parimutuel`). */

@@ -10,7 +10,7 @@ use anchor_lang::prelude::*;
 pub struct VoteResolutionArgs {
     pub market_id: u64,
     pub outcome_index: u8,
-    /// Resolver slot index (0..7) for this signer; must match the resolver account at this index.
+    /// Resolver slot index; must match `resolver` and be `< market.num_resolvers`.
     pub resolver_index: u8,
 }
 
@@ -22,21 +22,14 @@ pub fn handler(ctx: Context<VoteResolution>, args: VoteResolutionArgs) -> Result
         args.outcome_index < market.outcome_count,
         PredictionMarketError::InvalidOutcomeIndex
     );
-    require!(args.resolver_index < 8, PredictionMarketError::InvalidOutcomeIndex);
+    require!(
+        args.resolver_index < market.num_resolvers,
+        PredictionMarketError::InvalidResolutionThreshold
+    );
 
     let signer = ctx.accounts.resolver_signer.key();
-    let resolvers = [
-        &ctx.accounts.resolver_0,
-        &ctx.accounts.resolver_1,
-        &ctx.accounts.resolver_2,
-        &ctx.accounts.resolver_3,
-        &ctx.accounts.resolver_4,
-        &ctx.accounts.resolver_5,
-        &ctx.accounts.resolver_6,
-        &ctx.accounts.resolver_7,
-    ];
     require!(
-        resolvers[args.resolver_index as usize].resolver_pubkey == signer,
+        ctx.accounts.resolver.resolver_pubkey == signer,
         PredictionMarketError::NotResolver
     );
 
@@ -69,22 +62,11 @@ pub struct VoteResolution<'info> {
     )]
     pub market: Account<'info, Market>,
 
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[0]], bump)]
-    pub resolver_0: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[1]], bump)]
-    pub resolver_1: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[2]], bump)]
-    pub resolver_2: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[3]], bump)]
-    pub resolver_3: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[4]], bump)]
-    pub resolver_4: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[5]], bump)]
-    pub resolver_5: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[6]], bump)]
-    pub resolver_6: Box<Account<'info, Resolver>>,
-    #[account(seeds = [market.key().as_ref(), b"resolver", &[7]], bump)]
-    pub resolver_7: Box<Account<'info, Resolver>>,
+    #[account(
+        seeds = [market.key().as_ref(), b"resolver", &[args.resolver_index]],
+        bump,
+    )]
+    pub resolver: Box<Account<'info, Resolver>>,
 
     #[account(
         init_if_needed,

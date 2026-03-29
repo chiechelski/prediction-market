@@ -5,10 +5,12 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  type TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
@@ -22,7 +24,7 @@ import {
   deriveVault,
   deriveOutcomeMint,
   deriveAllOutcomeMints,
-  deriveAllResolvers,
+  deriveResolver,
   deriveAllOutcomeTallies,
   deriveOutcomeTally,
   deriveResolutionVote,
@@ -39,7 +41,7 @@ import type {
   ParimutuelClaimParams,
   InitializeConfigParams,
   UpdateConfigParams,
-  InitializeMarketResolversParams,
+  InitializeMarketResolverSlotsParams,
   MintCompleteSetParams,
   RedeemCompleteSetParams,
   VoteResolutionParams,
@@ -72,6 +74,57 @@ export class PredictionMarketClient {
 
   private get walletKey(): PublicKey {
     return (this.program.provider as anchor.AnchorProvider).wallet.publicKey;
+  }
+
+  private async collateralTokenProgramForMint(mint: PublicKey): Promise<PublicKey> {
+    const info = await this.connection.getAccountInfo(mint);
+    if (!info) throw new Error(`Mint not found: ${mint.toBase58()}`);
+    return info.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
+  }
+
+  /** Platform treasury wallet ATA for `collateralMint`, created by payer if missing (e.g. before pari init). */
+  private async treasuryCollateralAtaCreateIfMissingInstructions(
+    collateralMint: PublicKey
+  ): Promise<TransactionInstruction[]> {
+    const gc = await this.fetchGlobalConfig();
+    const treasuryWallet = gc.platformTreasury as PublicKey;
+    const tokenProg = await this.collateralTokenProgramForMint(collateralMint);
+    return this.createCollateralAtaIfMissingInstructions(
+      this.walletKey,
+      collateralMint,
+      treasuryWallet,
+      tokenProg
+    );
+  }
+
+  /** Create collateral ATA for `owner` if it does not exist yet (bundled with `createMarket`). */
+  private async createCollateralAtaIfMissingInstructions(
+    payer: PublicKey,
+    collateralMint: PublicKey,
+    owner: PublicKey,
+    tokenProgram: PublicKey
+  ): Promise<TransactionInstruction[]> {
+    const ata = getAssociatedTokenAddressSync(
+      collateralMint,
+      owner,
+      false,
+      tokenProgram,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    const info = await this.connection.getAccountInfo(ata, 'confirmed');
+    if (info) return [];
+    return [
+      createAssociatedTokenAccountInstruction(
+        payer,
+        ata,
+        owner,
+        collateralMint,
+        tokenProgram,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      ),
+    ];
   }
 
   // ─── Admin ──────────────────────────────────────────────────────────────────
@@ -179,8 +232,46 @@ export class PredictionMarketClient {
   ): Promise<{ marketPda: PublicKey; sig: string }> {
     const marketPda = deriveMarket(this.program.programId, creator, params.marketId);
     const vaultPda = deriveVault(this.program.programId, marketPda);
+    const collateralTokenProgram =
+      await this.collateralTokenProgramForMint(collateralMint);
 
-    const sig = await this.program.methods
+    const expectedCreatorAta = getAssociatedTokenAddressSync(
+      collateralMint,
+      creator,
+      false,
+      collateralTokenProgram,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    if (!expectedCreatorAta.equals(creatorFeeAccount)) {
+      throw new Error(
+        `creatorFeeAccount must be the creator's collateral ATA (${expectedCreatorAta.toBase58()}) for this mint and token program`
+      );
+    }
+
+    const gc = await (this.program.account as any).globalConfig.fetch(
+      this.globalConfig
+    );
+    const platformTreasuryWallet = gc.platformTreasury as PublicKey;
+
+    const preIxs: TransactionInstruction[] = [];
+    preIxs.push(
+      ...(await this.createCollateralAtaIfMissingInstructions(
+        this.walletKey,
+        collateralMint,
+        creator,
+        collateralTokenProgram
+      ))
+    );
+    preIxs.push(
+      ...(await this.createCollateralAtaIfMissingInstructions(
+        this.walletKey,
+        collateralMint,
+        platformTreasuryWallet,
+        collateralTokenProgram
+      ))
+    );
+
+    const createIx = await this.program.methods
       .createMarket({
         marketId: params.marketId,
         outcomeCount: params.outcomeCount,
@@ -198,50 +289,90 @@ export class PredictionMarketClient {
         vault: vaultPda,
         collateralMint,
         creator,
-        creatorFeeAccount,
+        creatorFeeAccount: expectedCreatorAta,
         globalConfig: this.globalConfig,
         allowedMint: deriveAllowedMint(this.program.programId, collateralMint),
         marketCategory: params.marketCategory ?? null,
-        collateralTokenProgram: TOKEN_PROGRAM_ID,
+        collateralTokenProgram,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       } as AnyAccounts)
-      .rpc(opts ?? { skipPreflight: true });
+      .instruction();
+
+    const tx = new Transaction();
+    for (const ix of preIxs) tx.add(ix);
+    tx.add(createIx);
+
+    const provider = this.program.provider as anchor.AnchorProvider;
+    const sig = await provider.sendAndConfirm(
+      tx,
+      [],
+      opts ?? { commitment: 'confirmed', skipPreflight: true }
+    );
 
     return { marketPda, sig };
   }
 
   /**
-   * Step 2 — Initialize up to 8 Resolver PDAs.
-   * Fill unused slots with `PublicKey.default`.
+   * Step 2 — Initialize resolver PDAs for slots `0..resolverPubkeys.length-1` in **one** transaction.
+   * Optional `parimutuelStateParams` appends `initializeParimutuelState` in the same tx (no ordering
+   * dependency vs resolvers on-chain).
    */
-  async initializeMarketResolvers(
+  async initializeMarketResolverSlots(
     marketPda: PublicKey,
-    params: InitializeMarketResolversParams,
-    opts?: anchor.web3.ConfirmOptions
+    params: InitializeMarketResolverSlotsParams,
+    opts?: anchor.web3.ConfirmOptions,
+    parimutuelStateParams?: InitializeParimutuelStateParams
   ): Promise<string> {
-    const resolverPdas = deriveAllResolvers(this.program.programId, marketPda);
+    const provider = this.program.provider as anchor.AnchorProvider;
+    const tx = new Transaction();
+    const { marketId, resolverPubkeys } = params;
 
-    return this.program.methods
-      .initializeMarketResolvers({
-        marketId: params.marketId,
-        resolverPubkeys: params.resolverPubkeys,
-        numResolvers: params.numResolvers,
-      })
-      .accounts({
-        payer: this.walletKey,
-        market: marketPda,
-        systemProgram: SystemProgram.programId,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
-      } as AnyAccounts)
-      .rpc(opts ?? { skipPreflight: true });
+    if (parimutuelStateParams) {
+      const market = await this.fetchMarket(marketPda);
+      const treasuryPre =
+        await this.treasuryCollateralAtaCreateIfMissingInstructions(
+          market.collateralMint
+        );
+      for (const ix of treasuryPre) tx.add(ix);
+    }
+
+    for (let i = 0; i < resolverPubkeys.length; i++) {
+      const ix = await this.program.methods
+        .initializeMarketResolver({
+          marketId,
+          resolverIndex: i,
+          resolverPubkey: resolverPubkeys[i]!,
+        })
+        .accounts({
+          payer: this.walletKey,
+          market: marketPda,
+          resolver: deriveResolver(this.program.programId, marketPda, i),
+          systemProgram: SystemProgram.programId,
+        } as AnyAccounts)
+        .instruction();
+      tx.add(ix);
+    }
+    if (parimutuelStateParams) {
+      const parimutuelState = deriveParimutuelState(this.program.programId, marketPda);
+      const ix = await this.program.methods
+        .initializeParimutuelState({
+          marketId: parimutuelStateParams.marketId,
+          earlyWithdrawPenaltyBps: parimutuelStateParams.earlyWithdrawPenaltyBps,
+          penaltyKeptInPoolBps: parimutuelStateParams.penaltyKeptInPoolBps,
+          penaltySurplusCreatorShareBps: parimutuelStateParams.penaltySurplusCreatorShareBps,
+        })
+        .accounts({
+          payer: this.walletKey,
+          market: marketPda,
+          globalConfig: this.globalConfig,
+          parimutuelState,
+          systemProgram: SystemProgram.programId,
+        } as AnyAccounts)
+        .instruction();
+      tx.add(ix);
+    }
+    return await provider.sendAndConfirm(tx, undefined, opts ?? { skipPreflight: true });
   }
 
   /**
@@ -282,31 +413,43 @@ export class PredictionMarketClient {
     creator: PublicKey,
     collateralMint: PublicKey,
     creatorFeeAccount: PublicKey,
-    resolverPubkeys: [PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey],
+    /** Length must equal `params.numResolvers` (typically the first N of an 8-slot UI). */
+    resolverPubkeys: PublicKey[],
     params: CreateMarketParams,
     opts?: anchor.web3.ConfirmOptions
   ): Promise<PublicKey> {
     const { marketPda } = await this.createMarket(
       creator, collateralMint, creatorFeeAccount, params, opts
     );
-    await this.initializeMarketResolvers(marketPda, {
-      marketId: params.marketId,
-      resolverPubkeys,
-      numResolvers: params.numResolvers,
-    }, opts);
     if (params.marketType === 'parimutuel') {
       const gc = await this.fetchGlobalConfig();
       const pi = params.parimutuelInit ?? {};
       const penaltySurplusCreatorShareBps =
         pi.penaltySurplusCreatorShareBps ??
         10000 - gc.parimutuelPenaltyProtocolShareBps;
-      await this.initializeParimutuelState(marketPda, {
-        marketId: params.marketId,
-        earlyWithdrawPenaltyBps: pi.earlyWithdrawPenaltyBps ?? 500,
-        penaltyKeptInPoolBps: pi.penaltyKeptInPoolBps ?? 8000,
-        penaltySurplusCreatorShareBps,
-      }, opts);
+      await this.initializeMarketResolverSlots(
+        marketPda,
+        {
+          marketId: params.marketId,
+          resolverPubkeys: resolverPubkeys.slice(0, params.numResolvers),
+        },
+        opts,
+        {
+          marketId: params.marketId,
+          earlyWithdrawPenaltyBps: pi.earlyWithdrawPenaltyBps ?? 500,
+          penaltyKeptInPoolBps: pi.penaltyKeptInPoolBps ?? 8000,
+          penaltySurplusCreatorShareBps,
+        }
+      );
     } else {
+      await this.initializeMarketResolverSlots(
+        marketPda,
+        {
+          marketId: params.marketId,
+          resolverPubkeys: resolverPubkeys.slice(0, params.numResolvers),
+        },
+        opts
+      );
       await this.initializeMarketMints(marketPda, params.marketId, opts);
     }
     return marketPda;
@@ -318,8 +461,14 @@ export class PredictionMarketClient {
     params: InitializeParimutuelStateParams,
     opts?: anchor.web3.ConfirmOptions
   ): Promise<string> {
+    const provider = this.program.provider as anchor.AnchorProvider;
+    const market = await this.fetchMarket(marketPda);
+    const treasuryPre =
+      await this.treasuryCollateralAtaCreateIfMissingInstructions(
+        market.collateralMint
+      );
     const parimutuelState = deriveParimutuelState(this.program.programId, marketPda);
-    return this.program.methods
+    const pariIx = await this.program.methods
       .initializeParimutuelState({
         marketId: params.marketId,
         earlyWithdrawPenaltyBps: params.earlyWithdrawPenaltyBps,
@@ -333,7 +482,15 @@ export class PredictionMarketClient {
         parimutuelState,
         systemProgram: SystemProgram.programId,
       } as AnyAccounts)
-      .rpc(opts ?? { skipPreflight: true });
+      .instruction();
+    const tx = new Transaction();
+    for (const ix of treasuryPre) tx.add(ix);
+    tx.add(pariIx);
+    return await provider.sendAndConfirm(
+      tx,
+      [],
+      opts ?? { commitment: 'confirmed', skipPreflight: true }
+    );
   }
 
   async parimutuelStake(
@@ -605,7 +762,6 @@ export class PredictionMarketClient {
     params: VoteResolutionParams,
     opts?: anchor.web3.ConfirmOptions
   ): Promise<string> {
-    const resolverPdas = deriveAllResolvers(this.program.programId, marketPda);
     const votePda = deriveResolutionVote(this.program.programId, marketPda, params.resolverIndex);
     const tallyPda = deriveOutcomeTally(
       this.program.programId,
@@ -622,16 +778,13 @@ export class PredictionMarketClient {
       .accounts({
         resolverSigner: this.walletKey,
         market: marketPda,
+        resolver: deriveResolver(
+          this.program.programId,
+          marketPda,
+          params.resolverIndex
+        ),
         resolutionVote: votePda,
         outcomeTally: tallyPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
         systemProgram: SystemProgram.programId,
       } as AnyAccounts)
       .rpc(opts ?? { skipPreflight: true });
@@ -643,7 +796,6 @@ export class PredictionMarketClient {
     params: RevokeResolutionVoteParams,
     opts?: anchor.web3.ConfirmOptions
   ): Promise<string> {
-    const resolverPdas = deriveAllResolvers(this.program.programId, marketPda);
     const votePda = deriveResolutionVote(this.program.programId, marketPda, params.resolverIndex);
     const tallyPda = deriveOutcomeTally(
       this.program.programId,
@@ -660,16 +812,13 @@ export class PredictionMarketClient {
       .accounts({
         resolverSigner: this.walletKey,
         market: marketPda,
+        resolver: deriveResolver(
+          this.program.programId,
+          marketPda,
+          params.resolverIndex
+        ),
         resolutionVote: votePda,
         outcomeTally: tallyPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       } as AnyAccounts)
       .rpc(opts ?? { skipPreflight: true });
   }
@@ -760,52 +909,34 @@ export class PredictionMarketClient {
 
   // ─── Market lifecycle ────────────────────────────────────────────────────────
 
-  /** Creator or any resolver can close the market before `close_at`. */
+  /** Market creator or global config authority can close the market before `close_at`. */
   async closeMarketEarly(
     marketPda: PublicKey,
     params: CloseMarketEarlyParams,
     opts?: anchor.web3.ConfirmOptions
   ): Promise<string> {
-    const resolverPdas = deriveAllResolvers(this.program.programId, marketPda);
-
     return this.program.methods
       .closeMarketEarly({ marketId: params.marketId })
       .accounts({
         signer: this.walletKey,
+        globalConfig: this.globalConfig,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       } as AnyAccounts)
       .rpc(opts ?? { skipPreflight: true });
   }
 
-  /** Void the market (cancel); enables full-set redemption for all holders. */
+  /** Void the market (cancel); enables full-set redemption for all holders. Creator or global authority only. */
   async voidMarket(
     marketPda: PublicKey,
     params: VoidMarketParams,
     opts?: anchor.web3.ConfirmOptions
   ): Promise<string> {
-    const resolverPdas = deriveAllResolvers(this.program.programId, marketPda);
-
     return this.program.methods
       .voidMarket({ marketId: params.marketId })
       .accounts({
         signer: this.walletKey,
+        globalConfig: this.globalConfig,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       } as AnyAccounts)
       .rpc(opts ?? { skipPreflight: true });
   }

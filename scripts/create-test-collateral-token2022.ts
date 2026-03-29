@@ -1,28 +1,22 @@
 /**
- * Creates (or reuses) a local test-USDC mint and mints tokens to the
- * configured wallet plus any extra addresses passed on the command line.
- *
- * New mints use **Token-2022** with MetadataPointer + on-mint TokenMetadata
- * (name/symbol), so UIs can show **tUSDC** instead of a raw pubkey — same
- * pattern as production tokens that use the metadata extension.
+ * Creates (or reuses) a local test collateral mint using **Token-2022** with
+ * MetadataPointer + on-mint TokenMetadata (name/symbol), so UIs can show **tUSDC**
+ * instead of a raw pubkey.
  *
  * Usage (from prediction_market/):
- *   yarn script:usdc                          # mint 1 000 000 tUSDC to your wallet
- *   yarn script:usdc <addr1> <addr2> ...      # also mint to extra addresses
+ *   yarn script:token2022                          # mint 1 000 000 to your wallet
+ *   yarn script:token2022 <addr1> <addr2> ...      # also mint to extra addresses
  *
  * Optional env (only for **new** mints):
  *   TUSDC_NAME   (default: Test USD Coin)
  *   TUSDC_SYMBOL (default: tUSDC)
  *   TUSDC_URI    (default: empty)
  *
- * The mint keypair is saved to tests/keys/test-usdc-mint.json so the address
- * is the same on every run (as long as the validator's ledger is preserved).
- * If the mint account already exists on-chain, no re-creation happens — tokens
- * are just minted into the requested ATAs (classic SPL or Token-2022).
+ * Keypair: tests/keys/test-usdc-mint.json
+ *
+ * Allowlist the mint via the Platform page in the web app (global authority).
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import {
   Connection,
   Keypair,
@@ -34,62 +28,29 @@ import {
 import {
   createInitializeInstruction,
   createInitializeMetadataPointerInstruction,
-  createInitializeMintInstruction,
+  createInitializeMint2Instruction,
   getMint,
   getMintLen,
   getOrCreateAssociatedTokenAccount,
   mintTo,
   ExtensionType,
-  TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import { pack, type TokenMetadata } from "@solana/spl-token-metadata";
+import {
+  COLLATERAL_DECIMALS,
+  RPC_URL,
+  TOKEN2022_MINT_KEYPAIR_PATH,
+  PAYER_KEYPAIR_PATH,
+  loadKeypair,
+  loadOrCreateMintKeypair,
+} from "./collateral-script-env";
 
-// ─── Config ────────────────────────────────────────────────────────────────
-
-const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8899";
-const DECIMALS = 6; // same as real USDC
-const MINT_AMOUNT_UI = 1_000_000; // 1 000 000 tUSDC per recipient
+const MINT_AMOUNT_UI = 1_000_000;
 
 const TOKEN_NAME = process.env.TUSDC_NAME ?? "Test USD Coin";
 const TOKEN_SYMBOL = process.env.TUSDC_SYMBOL ?? "tUSDC";
 const TOKEN_URI = process.env.TUSDC_URI ?? "";
-
-const MINT_KEYPAIR_PATH = path.resolve(
-  __dirname,
-  "../tests/keys/test-usdc-mint.json",
-);
-const PAYER_KEYPAIR_PATH =
-  process.env.ANCHOR_WALLET ??
-  path.join(process.env.HOME ?? "~", ".config/solana/id.json");
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function loadKeypair(filePath: string): Keypair {
-  const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  return Keypair.fromSecretKey(Uint8Array.from(raw));
-}
-
-function loadOrCreateMintKeypair(): Keypair {
-  if (fs.existsSync(MINT_KEYPAIR_PATH)) {
-    return loadKeypair(MINT_KEYPAIR_PATH);
-  }
-  const kp = Keypair.generate();
-  fs.mkdirSync(path.dirname(MINT_KEYPAIR_PATH), { recursive: true });
-  fs.writeFileSync(MINT_KEYPAIR_PATH, JSON.stringify(Array.from(kp.secretKey)));
-  console.log(`Generated new mint keypair → ${MINT_KEYPAIR_PATH}`);
-  return kp;
-}
-
-async function tokenProgramForMint(
-  connection: Connection,
-  mint: PublicKey,
-): Promise<PublicKey> {
-  const info = await connection.getAccountInfo(mint);
-  if (!info) return TOKEN_PROGRAM_ID;
-  if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
-  return TOKEN_PROGRAM_ID;
-}
 
 async function createToken2022MintWithMetadata(
   connection: Connection,
@@ -106,17 +67,19 @@ async function createToken2022MintWithMetadata(
   };
 
   const metadataPackedLen = pack(tokenMetadata).length;
-  const mintLen = getMintLen([ExtensionType.MetadataPointer], {
+  const mintLenWithPointerOnly = getMintLen([ExtensionType.MetadataPointer]);
+  const mintLenAfterMetadata = getMintLen([ExtensionType.MetadataPointer], {
     [ExtensionType.TokenMetadata]: metadataPackedLen,
   });
-
-  const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
+  const lamports = await connection.getMinimumBalanceForRentExemption(
+    mintLenAfterMetadata,
+  );
 
   const tx = new Transaction().add(
     SystemProgram.createAccount({
       fromPubkey: payer.publicKey,
       newAccountPubkey: mintKeypair.publicKey,
-      space: mintLen,
+      space: mintLenWithPointerOnly,
       lamports,
       programId: TOKEN_2022_PROGRAM_ID,
     }),
@@ -126,9 +89,9 @@ async function createToken2022MintWithMetadata(
       mintKeypair.publicKey,
       TOKEN_2022_PROGRAM_ID,
     ),
-    createInitializeMintInstruction(
+    createInitializeMint2Instruction(
       mintKeypair.publicKey,
-      DECIMALS,
+      COLLATERAL_DECIMALS,
       payer.publicKey,
       payer.publicKey,
       TOKEN_2022_PROGRAM_ID,
@@ -157,7 +120,6 @@ async function mintToAddress(
   recipient: PublicKey,
   amountRaw: bigint,
 ): Promise<void> {
-  const programId = await tokenProgramForMint(connection, mintPubkey);
   const ata = await getOrCreateAssociatedTokenAccount(
     connection,
     payer,
@@ -166,18 +128,18 @@ async function mintToAddress(
     false,
     "confirmed",
     { commitment: "confirmed" },
-    programId,
+    TOKEN_2022_PROGRAM_ID,
   );
   await mintTo(
     connection,
     payer,
     mintPubkey,
     ata.address,
-    payer, // mint authority = payer
+    payer,
     amountRaw,
     [],
     { commitment: "confirmed" },
-    programId,
+    TOKEN_2022_PROGRAM_ID,
   );
   console.log(
     `  ✓ Minted ${MINT_AMOUNT_UI.toLocaleString()} ${TOKEN_SYMBOL} → ${recipient.toBase58()}`,
@@ -185,39 +147,28 @@ async function mintToAddress(
   console.log(`    ATA: ${ata.address.toBase58()}`);
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
-
 async function main() {
   const connection = new Connection(RPC_URL, "confirmed");
   const payer = loadKeypair(PAYER_KEYPAIR_PATH);
-  const mintKeypair = loadOrCreateMintKeypair();
+  const mintKeypair = loadOrCreateMintKeypair(TOKEN2022_MINT_KEYPAIR_PATH);
 
-  console.log("\n=== Test USDC setup ===");
+  console.log("\n=== Test collateral (Token-2022) ===");
   console.log(`RPC          : ${RPC_URL}`);
   console.log(`Payer        : ${payer.publicKey.toBase58()}`);
   console.log(`Mint address : ${mintKeypair.publicKey.toBase58()}`);
   console.log(`Metadata     : "${TOKEN_NAME}" (${TOKEN_SYMBOL})`);
 
-  // Create or verify mint
   let mintExists = false;
   try {
-    const programId = await tokenProgramForMint(
-      connection,
-      mintKeypair.publicKey,
-    );
     const info = await getMint(
       connection,
       mintKeypair.publicKey,
       "confirmed",
-      programId,
+      TOKEN_2022_PROGRAM_ID,
     );
     mintExists = true;
     console.log(
-      `\nMint already exists (program=${
-        programId.equals(TOKEN_2022_PROGRAM_ID) ? "Token-2022" : "SPL Token"
-      }, decimals=${
-        info.decimals
-      }, authority=${info.mintAuthority?.toBase58()})`,
+      `\nMint already exists (Token-2022, decimals=${info.decimals}, authority=${info.mintAuthority?.toBase58()})`,
     );
   } catch {
     // not found — create it
@@ -229,7 +180,6 @@ async function main() {
     console.log(`Mint created: ${mintKeypair.publicKey.toBase58()}`);
   }
 
-  // Recipients: payer + any extra addresses from CLI args
   const extraArgs = process.argv.slice(2);
   const extraRecipients: PublicKey[] = [];
   for (const arg of extraArgs) {
@@ -241,7 +191,7 @@ async function main() {
   }
 
   const recipients = [payer.publicKey, ...extraRecipients];
-  const amountRaw = BigInt(MINT_AMOUNT_UI) * BigInt(10 ** DECIMALS);
+  const amountRaw = BigInt(MINT_AMOUNT_UI) * BigInt(10 ** COLLATERAL_DECIMALS);
 
   console.log(`\nMinting to ${recipients.length} address(es)…`);
   for (const recipient of recipients) {
@@ -255,12 +205,11 @@ async function main() {
   }
 
   console.log("\n✅ Done.");
-  console.log(`\nMint address to use in the UI / Anchor.toml:`);
+  console.log(`\nMint address (Token-2022):`);
   console.log(`  ${mintKeypair.publicKey.toBase58()}`);
   console.log(
-    `\nTo add it to the platform allowlist, go to the Platform page in the UI`,
+    `\nAdd this mint on the Platform page (global authority) before creating markets.`,
   );
-  console.log(`or run the add-allowed-mint script (if available).`);
 }
 
 main().catch((err) => {

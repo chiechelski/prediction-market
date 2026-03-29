@@ -5,8 +5,10 @@ use crate::state::*;
 use crate::utils::transfer_checked;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer as SolTransfer};
-use anchor_spl::token::{Token, TokenAccount};
-use anchor_spl::token_interface::{Mint as InterfaceMint, TokenInterface};
+use anchor_spl::token::Token;
+use anchor_spl::token_interface::{
+    Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct ParimutuelWithdrawArgs {
@@ -229,17 +231,17 @@ pub struct ParimutuelWithdraw<'info> {
         seeds = [b"market", market.creator.as_ref(), &args.market_id.to_le_bytes()],
         bump = market.bump,
     )]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
 
     #[account(mut, address = market.creator_fee_account)]
-    pub creator_fee_account: InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
+    pub creator_fee_account: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
     #[account(
         mut,
         seeds = [b"pari", market.key().as_ref()],
         bump = parimutuel_state.bump,
     )]
-    pub parimutuel_state: Account<'info, ParimutuelState>,
+    pub parimutuel_state: Box<Account<'info, ParimutuelState>>,
 
     #[account(
         mut,
@@ -251,7 +253,7 @@ pub struct ParimutuelWithdraw<'info> {
         ],
         bump = position.bump,
     )]
-    pub position: Account<'info, ParimutuelPosition>,
+    pub position: Box<Account<'info, ParimutuelPosition>>,
 
     #[account(
         mut,
@@ -259,25 +261,25 @@ pub struct ParimutuelWithdraw<'info> {
         bump,
         constraint = vault.key() == market.vault,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
-    pub collateral_mint: InterfaceAccount<'info, InterfaceMint>,
+    pub collateral_mint: Box<InterfaceAccount<'info, InterfaceMint>>,
 
     #[account(
         mut,
         constraint = user_collateral_account.owner == user.key(),
         constraint = user_collateral_account.mint == collateral_mint.key(),
     )]
-    pub user_collateral_account: Account<'info, TokenAccount>,
+    pub user_collateral_account: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
     #[account(seeds = [b"global-config"], bump)]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(mut, address = global_config.platform_treasury)]
     pub platform_treasury_wallet: SystemAccount<'info>,
 
     #[account(mut)]
-    pub platform_treasury_ata: InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
+    pub platform_treasury_ata: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
     pub collateral_token_program: Interface<'info, TokenInterface>,
     pub token_program: Program<'info, Token>,

@@ -7,8 +7,10 @@
     "postinstall": "patch-package",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
-    "script:usdc": "ts-node -P tsconfig.json scripts/create-test-usdc.ts",
-    "script:mint": "ts-node -P tsconfig.json scripts/mint-test-usdc.ts"
+    "script:token2022": "ts-node -P tsconfig.json scripts/create-test-collateral-token2022.ts",
+    "script:token2022:mint": "ts-node -P tsconfig.json scripts/mint-test-collateral-token2022.ts",
+    "script:spl-token": "ts-node -P tsconfig.json scripts/create-test-collateral-spl-token.ts",
+    "script:spl-token:mint": "ts-node -P tsconfig.json scripts/mint-test-collateral-spl-token.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

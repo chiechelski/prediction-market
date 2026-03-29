@@ -50,20 +50,16 @@ export type MarketTypeIx = {
     parimutuel: Record<string, never>;
 };
 export declare function toMarketTypeIx(marketType: CreateMarketParams['marketType']): MarketTypeIx;
-export interface InitializeMarketResolversParams {
+/** One `initialize_market_resolver` per slot; use `initializeMarketResolverSlots` to batch. */
+export interface InitializeMarketResolverSlotParams {
     marketId: BN;
-    /** Exactly 8 pubkeys; slots beyond numResolvers should be PublicKey.default. */
-    resolverPubkeys: [
-        PublicKey,
-        PublicKey,
-        PublicKey,
-        PublicKey,
-        PublicKey,
-        PublicKey,
-        PublicKey,
-        PublicKey
-    ];
-    numResolvers: number;
+    resolverIndex: number;
+    resolverPubkey: PublicKey;
+}
+export interface InitializeMarketResolverSlotsParams {
+    marketId: BN;
+    /** Length must equal `numResolvers` from create market. */
+    resolverPubkeys: PublicKey[];
 }
 /** Pari-mutuel pool account (after `createMarket` with `marketType: parimutuel`). */
 export interface InitializeParimutuelStateParams {
@@ -81,6 +77,7 @@ export interface InitializeParimutuelStateParams {
 export interface ParimutuelStakeParams {
     marketId: BN;
     outcomeIndex: number;
+    /** Net collateral credited to the pool; platform and creator fees are charged on top. */
     amount: BN;
 }
 export interface ParimutuelWithdrawParams {
@@ -94,7 +91,7 @@ export interface ParimutuelClaimParams {
 }
 export interface MintCompleteSetParams {
     marketId: BN;
-    /** Collateral amount in base units (e.g. 10_000_000 = 10 USDC with 6 decimals). */
+    /** Net collateral to vault / minted per outcome; fees are charged on top (same base units). */
     amount: BN;
 }
 export interface RedeemCompleteSetParams {

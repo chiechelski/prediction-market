@@ -15,7 +15,7 @@ pub struct CreateMarketArgs {
     pub creator_fee_bps: u16,
     /// 0 = use global default — platform fee on **mint complete set** (deposit collateral).
     pub deposit_platform_fee_bps: u16,
-    /// Up to 8 resolver pubkeys, set during initialize_market_resolvers.
+    /// How many resolver PDAs to initialize (slots 0..num_resolvers-1) via `initialize_market_resolver`.
     pub num_resolvers: u8,
     /// UTF-8 market title (1–128 bytes after trim).
     pub title: String,
@@ -74,6 +74,7 @@ pub fn handler(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()>
     market.resolved_outcome_index = None;
     market.voided = false;
     market.resolution_threshold = args.resolution_threshold;
+    market.num_resolvers = args.num_resolvers;
     market.creator = ctx.accounts.creator.key();
     market.creator_fee_bps = args.creator_fee_bps;
     market.creator_fee_account = ctx.accounts.creator_fee_account.key();

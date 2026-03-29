@@ -30,10 +30,8 @@ function normalizeMint(mint: PublicKey | string): PublicKey {
   return mint instanceof PublicKey ? mint : new PublicKey(mint);
 }
 
-function knownTokenToDisplay(
-  k: KnownToken,
-  tokenProgram: 'spl-token' | 'token-2022' = 'spl-token'
-): CollateralTokenDisplay {
+function knownTokenToDisplay(k: KnownToken): CollateralTokenDisplay {
+  const tokenProgram = k.tokenProgram ?? 'spl-token';
   return {
     symbol: k.symbol,
     name: k.name,

@@ -7,9 +7,11 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_option::COption;
 use anchor_lang::solana_program::program_pack::Pack;
 use anchor_lang::system_program::{self, Transfer as SolTransfer};
-use anchor_spl::token::{self, MintTo, Token, TokenAccount};
+use anchor_spl::token::{self, MintTo, Token};
 use anchor_spl::token::spl_token::state::{Account as SplTokenAccount, Mint as SplMint};
-use anchor_spl::token_interface::TokenInterface;
+use anchor_spl::token_interface::{
+    Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct MintCompleteSetArgs {
@@ -204,19 +206,19 @@ pub struct MintCompleteSet<'info> {
         bump,
         constraint = vault.key() == market.vault,
     )]
-    pub vault: Box<Account<'info, TokenAccount>>,
+    pub vault: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
-    pub collateral_mint: InterfaceAccount<'info, anchor_spl::token_interface::Mint>,
+    pub collateral_mint: InterfaceAccount<'info, InterfaceMint>,
 
     #[account(
         mut,
         constraint = user_collateral_account.owner == user.key(),
         constraint = user_collateral_account.mint == collateral_mint.key(),
     )]
-    pub user_collateral_account: Box<Account<'info, TokenAccount>>,
+    pub user_collateral_account: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
     #[account(mut, address = market.creator_fee_account)]
-    pub creator_fee_account: Box<Account<'info, TokenAccount>>,
+    pub creator_fee_account: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
     #[account(seeds = [b"global-config"], bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -230,7 +232,7 @@ pub struct MintCompleteSet<'info> {
 
     /// ATA for collateral mint; mint/owner validated in handler.
     #[account(mut)]
-    pub platform_treasury_ata: Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
+    pub platform_treasury_ata: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
 
     pub collateral_token_program: Interface<'info, TokenInterface>,
     pub token_program: Program<'info, Token>,

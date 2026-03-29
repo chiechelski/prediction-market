@@ -18,7 +18,7 @@ pub mod create_market_category;
 pub mod finalize_resolution;
 pub mod initialize_config;
 pub mod initialize_market_mints;
-pub mod initialize_market_resolvers;
+pub mod initialize_market_resolver;
 pub mod initialize_parimutuel_state;
 pub mod mint_complete_set;
 pub mod parimutuel_claim;
@@ -43,7 +43,7 @@ pub use create_market_category::CreateMarketCategory;
 pub use finalize_resolution::{FinalizeResolution, FinalizeResolutionArgs};
 pub use initialize_config::InitializeConfig;
 pub use initialize_market_mints::{InitializeMarketMints, InitializeMarketMintsArgs};
-pub use initialize_market_resolvers::{InitializeMarketResolvers, InitializeMarketResolversArgs};
+pub use initialize_market_resolver::{InitializeMarketResolver, InitializeMarketResolverArgs};
 pub use initialize_parimutuel_state::{InitializeParimutuelState, InitializeParimutuelStateArgs};
 pub use mint_complete_set::{MintCompleteSet, MintCompleteSetArgs};
 pub use parimutuel_claim::{ParimutuelClaim, ParimutuelClaimArgs};
@@ -97,8 +97,8 @@ pub mod __client_accounts_initialize_config {
 pub mod __client_accounts_initialize_market_mints {
     pub use crate::initialize_market_mints::__client_accounts_initialize_market_mints::*;
 }
-pub mod __client_accounts_initialize_market_resolvers {
-    pub use crate::initialize_market_resolvers::__client_accounts_initialize_market_resolvers::*;
+pub mod __client_accounts_initialize_market_resolver {
+    pub use crate::initialize_market_resolver::__client_accounts_initialize_market_resolver::*;
 }
 pub mod __client_accounts_initialize_parimutuel_state {
     pub use crate::initialize_parimutuel_state::__client_accounts_initialize_parimutuel_state::*;
@@ -216,11 +216,11 @@ pub mod prediction_market {
         initialize_market_mints::handler(ctx, args)
     }
 
-    pub fn initialize_market_resolvers(
-        ctx: Context<InitializeMarketResolvers>,
-        args: InitializeMarketResolversArgs,
+    pub fn initialize_market_resolver(
+        ctx: Context<InitializeMarketResolver>,
+        args: InitializeMarketResolverArgs,
     ) -> Result<()> {
-        initialize_market_resolvers::handler(ctx, args)
+        initialize_market_resolver::handler(ctx, args)
     }
 
     pub fn initialize_parimutuel_state(

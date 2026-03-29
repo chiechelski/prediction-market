@@ -104,7 +104,7 @@ The program supports **`market_type`** on each [`Market`](../programs/prediction
 
 **Global fees:** `deposit_platform_fee_bps` is the default platform fee on **mint complete set** (collateral deposit). It is not a generic “withdraw fee”; pari-mutuel uses the penalty fields above.
 
-Create flow: `create_market` → `initialize_market_resolvers` → either `initialize_market_mints` (complete-set) or `initialize_parimutuel_state` (early-withdraw bps, pool retention bps, creator surplus share). The web app exposes this as “Complete-set” vs “Pari-mutuel” on **Create market**, and filters/badges on **Markets**.
+Create flow: `create_market` → one or more `initialize_market_resolver` (typically batched in one tx) → either `initialize_market_mints` (complete-set) or `initialize_parimutuel_state` (early-withdraw bps, pool retention bps, creator surplus share). The web app exposes this as “Complete-set” vs “Pari-mutuel” on **Create market**, and filters/badges on **Markets**.
 
 ---
 

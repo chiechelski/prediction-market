@@ -108,6 +108,31 @@
           "signer": true
         },
         {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "market",
           "writable": true,
           "pda": {
@@ -134,30 +159,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "resolver_0"
-        },
-        {
-          "name": "resolver_1"
-        },
-        {
-          "name": "resolver_2"
-        },
-        {
-          "name": "resolver_3"
-        },
-        {
-          "name": "resolver_4"
-        },
-        {
-          "name": "resolver_5"
-        },
-        {
-          "name": "resolver_6"
-        },
-        {
-          "name": "resolver_7"
         }
       ],
       "args": [
@@ -745,16 +746,16 @@
       ]
     },
     {
-      "name": "initialize_market_resolvers",
+      "name": "initialize_market_resolver",
       "discriminator": [
-        142,
-        109,
-        67,
-        52,
-        227,
-        223,
-        156,
-        85
+        195,
+        54,
+        0,
+        135,
+        56,
+        129,
+        135,
+        99
       ],
       "accounts": [
         {
@@ -794,35 +795,7 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "resolver_0",
-          "writable": true
-        },
-        {
-          "name": "resolver_1",
-          "writable": true
-        },
-        {
-          "name": "resolver_2",
-          "writable": true
-        },
-        {
-          "name": "resolver_3",
-          "writable": true
-        },
-        {
-          "name": "resolver_4",
-          "writable": true
-        },
-        {
-          "name": "resolver_5",
-          "writable": true
-        },
-        {
-          "name": "resolver_6",
-          "writable": true
-        },
-        {
-          "name": "resolver_7",
+          "name": "resolver",
           "writable": true
         }
       ],
@@ -831,7 +804,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "InitializeMarketResolversArgs"
+              "name": "InitializeMarketResolverArgs"
             }
           }
         }
@@ -2029,28 +2002,7 @@
           }
         },
         {
-          "name": "resolver_0"
-        },
-        {
-          "name": "resolver_1"
-        },
-        {
-          "name": "resolver_2"
-        },
-        {
-          "name": "resolver_3"
-        },
-        {
-          "name": "resolver_4"
-        },
-        {
-          "name": "resolver_5"
-        },
-        {
-          "name": "resolver_6"
-        },
-        {
-          "name": "resolver_7"
+          "name": "resolver"
         },
         {
           "name": "resolution_vote",
@@ -2417,6 +2369,31 @@
           "signer": true
         },
         {
+          "name": "global_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "market",
           "writable": true,
           "pda": {
@@ -2443,30 +2420,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "resolver_0"
-        },
-        {
-          "name": "resolver_1"
-        },
-        {
-          "name": "resolver_2"
-        },
-        {
-          "name": "resolver_3"
-        },
-        {
-          "name": "resolver_4"
-        },
-        {
-          "name": "resolver_5"
-        },
-        {
-          "name": "resolver_6"
-        },
-        {
-          "name": "resolver_7"
         }
       ],
       "args": [
@@ -2527,28 +2480,7 @@
           }
         },
         {
-          "name": "resolver_0"
-        },
-        {
-          "name": "resolver_1"
-        },
-        {
-          "name": "resolver_2"
-        },
-        {
-          "name": "resolver_3"
-        },
-        {
-          "name": "resolver_4"
-        },
-        {
-          "name": "resolver_5"
-        },
-        {
-          "name": "resolver_6"
-        },
-        {
-          "name": "resolver_7"
+          "name": "resolver"
         },
         {
           "name": "resolution_vote",
@@ -2765,8 +2697,8 @@
     },
     {
       "code": 6011,
-      "name": "OnlyCreatorOrResolver",
-      "msg": "Only creator or resolver can perform this action"
+      "name": "OnlyCreatorOrGlobalAuthority",
+      "msg": "Only market creator or global config authority can perform this action"
     },
     {
       "code": 6012,
@@ -2887,6 +2819,11 @@
       "code": 6035,
       "name": "ParimutuelAlreadyClaimed",
       "msg": "Position already claimed"
+    },
+    {
+      "code": 6036,
+      "name": "OnlyMarketCreator",
+      "msg": "Only the market creator may initialize resolver accounts"
     }
   ],
   "types": [
@@ -2917,7 +2854,7 @@
     {
       "name": "CloseMarketEarlyArgs",
       "docs": [
-        "Close the market early. Allowed by market creator or any resolver."
+        "Close the market early. Allowed by market creator or global config primary/secondary authority."
       ],
       "type": {
         "kind": "struct",
@@ -2964,7 +2901,7 @@
           {
             "name": "num_resolvers",
             "docs": [
-              "Up to 8 resolver pubkeys, set during initialize_market_resolvers."
+              "How many resolver PDAs to initialize (slots 0..num_resolvers-1) via `initialize_market_resolver`."
             ],
             "type": "u8"
           },
@@ -3099,12 +3036,11 @@
       }
     },
     {
-      "name": "InitializeMarketResolversArgs",
+      "name": "InitializeMarketResolverArgs",
       "docs": [
-        "Second step of market creation: initializes **8** resolver PDAs and writes the first",
-        "`num_resolvers` pubkeys. The protocol fixes **8** on-chain slots (max resolvers); unused",
-        "slots stay allocated but are ignored. This is why a 3-outcome market still pays rent for",
-        "eight resolver accounts in this transaction (same pattern as the 8 outcome mints)."
+        "Initializes **one** resolver PDA at `resolver_index` (0..`market.num_resolvers`).",
+        "Call once per slot; bundle multiple instructions in one transaction to save round-trips.",
+        "Only `market.creator` may sign as payer."
       ],
       "type": {
         "kind": "struct",
@@ -3114,17 +3050,12 @@
             "type": "u64"
           },
           {
-            "name": "resolver_pubkeys",
-            "type": {
-              "array": [
-                "pubkey",
-                8
-              ]
-            }
+            "name": "resolver_index",
+            "type": "u8"
           },
           {
-            "name": "num_resolvers",
-            "type": "u8"
+            "name": "resolver_pubkey",
+            "type": "pubkey"
           }
         ]
       }
@@ -3207,6 +3138,13 @@
           },
           {
             "name": "resolution_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "num_resolvers",
+            "docs": [
+              "Set at creation; this many resolver PDAs must be initialized (slots `0..num_resolvers-1`)."
+            ],
             "type": "u8"
           },
           {
@@ -3727,7 +3665,8 @@
     {
       "name": "VoidMarketArgs",
       "docs": [
-        "Void the market. Allowed by market creator or any resolver. Rejected if already resolved."
+        "Void the market. Allowed by market creator or global config primary/secondary authority.",
+        "Rejected if already resolved."
       ],
       "type": {
         "kind": "struct",
@@ -3759,7 +3698,7 @@
           {
             "name": "resolver_index",
             "docs": [
-              "Resolver slot index (0..7) for this signer; must match the resolver account at this index."
+              "Resolver slot index; must match `resolver` and be `< market.num_resolvers`."
             ],
             "type": "u8"
           }

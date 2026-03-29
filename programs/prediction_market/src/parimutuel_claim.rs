@@ -4,8 +4,10 @@ use crate::errors::PredictionMarketError;
 use crate::state::*;
 use crate::utils::transfer_checked;
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount};
-use anchor_spl::token_interface::{Mint as InterfaceMint, TokenInterface};
+use anchor_spl::token::Token;
+use anchor_spl::token_interface::{
+    Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct ParimutuelClaimArgs {
@@ -125,7 +127,7 @@ pub struct ParimutuelClaim<'info> {
         bump,
         constraint = vault.key() == market.vault,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, InterfaceTokenAccount>,
 
     pub collateral_mint: InterfaceAccount<'info, InterfaceMint>,
 
@@ -134,7 +136,7 @@ pub struct ParimutuelClaim<'info> {
         constraint = user_collateral_account.owner == user.key(),
         constraint = user_collateral_account.mint == collateral_mint.key(),
     )]
-    pub user_collateral_account: Account<'info, TokenAccount>,
+    pub user_collateral_account: InterfaceAccount<'info, InterfaceTokenAccount>,
 
     pub collateral_token_program: Interface<'info, TokenInterface>,
     pub token_program: Program<'info, Token>,

@@ -1,5 +1,11 @@
-import { Program, AnchorProvider } from '@coral-xyz/anchor';
-import { Connection, PublicKey, SystemProgram } from '@solana/web3.js';
+import { AnchorProvider, Program } from '@coral-xyz/anchor';
+import {
+  Connection,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+} from '@solana/web3.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -18,6 +24,7 @@ import {
   deriveAllOutcomeMints,
   deriveAllOutcomeTallies,
   deriveAllResolvers,
+  deriveResolver,
   deriveOutcomeTally,
   deriveResolutionVote,
   deriveUserProfile,
@@ -29,11 +36,22 @@ import {
   ataAddress,
   ensureAssociatedTokenAccount,
   getMintTokenProgram,
+  instructionsToCreateCollateralAtaIfMissing,
+  isToken2022Program,
+  maybeRentTopUpInstruction,
+  rentTopUpLamportsNeeded,
+  TOKEN_2022_RENT_HEADROOM_LAMPORTS,
 } from '@/lib/token';
 
 export const DEFAULT_PUBKEY = new PublicKey(
   '11111111111111111111111111111111'
 );
+
+/** Skip simulateTransaction preflight when sending pari txs (see RPC rent false positives). Set false to restore simulation. */
+const PARIMUTUEL_SEND_OPTS = {
+  commitment: 'confirmed' as const,
+  skipPreflight: true,
+};
 
 /**
  * Given a treasury wallet address and a collateral mint, returns:
@@ -52,14 +70,6 @@ export async function getTreasuryAtaInfo(
   const ata = ataAddress(collateralMint, treasuryWallet, tokenProgram);
   const info = await connection.getAccountInfo(ata);
   return { ata, exists: info !== null };
-}
-
-function padResolvers(keys: PublicKey[], numResolvers: number): PublicKey[] {
-  const out: PublicKey[] = [];
-  for (let i = 0; i < 8; i++) {
-    out.push(i < numResolvers ? keys[i]! : DEFAULT_PUBKEY);
-  }
-  return out;
 }
 
 export async function getProgram(
@@ -140,7 +150,9 @@ export async function createMarketFullFlow(
   }
 ): Promise<{ marketPda: PublicKey; vault: PublicKey }> {
   const program = await getProgram(connection, wallet);
-  if (!wallet.publicKey) throw new Error('Wallet required');
+  if (!wallet.publicKey || !wallet.signTransaction) {
+    throw new Error('Wallet required (with signTransaction for market creation)');
+  }
 
   await assertSolBalanceForPayer(connection, wallet.publicKey);
 
@@ -165,20 +177,33 @@ export async function createMarketFullFlow(
     params.collateralMint
   );
 
-  const creatorFeeAta = await ensureAssociatedTokenAccount(
-    connection,
-    wallet,
-    params.collateralMint,
-    creator,
-    collateralTokenProgram
-  );
+  const gcAccount = await (program.account as any).globalConfig.fetch(globalConfig);
+  const platformTreasuryWallet = gcAccount.platformTreasury as PublicKey;
+
+  const { ata: creatorFeeAta, instructions: creatorFeeSetupIxs } =
+    await instructionsToCreateCollateralAtaIfMissing(
+      connection,
+      creator,
+      params.collateralMint,
+      creator,
+      collateralTokenProgram
+    );
+
+  const { instructions: treasurySetupIxs } =
+    await instructionsToCreateCollateralAtaIfMissing(
+      connection,
+      creator,
+      params.collateralMint,
+      platformTreasuryWallet,
+      collateralTokenProgram
+    );
 
   const marketTypeArg =
     params.marketType === 'parimutuel'
       ? { parimutuel: {} }
       : { completeSet: {} };
 
-  await program.methods
+  const createMarketIx = await program.methods
     .createMarket({
       marketId: params.marketId,
       outcomeCount: params.outcomeCount,
@@ -206,32 +231,62 @@ export async function createMarketFullFlow(
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
-    .rpc();
+    .instruction();
 
-  const resolverPdas = deriveAllResolvers(program.programId, marketPda);
-  const resolverKeys = padResolvers(params.resolverPubkeys, numResolvers);
+  const createMarketTx = new Transaction();
+  for (const ix of creatorFeeSetupIxs) createMarketTx.add(ix);
+  for (const ix of treasurySetupIxs) createMarketTx.add(ix);
+  createMarketTx.add(createMarketIx);
 
-  await program.methods
-    .initializeMarketResolvers({
-      marketId: params.marketId,
-      resolverPubkeys: resolverKeys,
-      numResolvers,
-    })
-    .accounts({
-      payer: creator,
-      market: marketPda,
-      systemProgram: SystemProgram.programId,
-      resolver0: resolverPdas[0], resolver1: resolverPdas[1], resolver2: resolverPdas[2],
-      resolver3: resolverPdas[3], resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
-    })
-    .rpc();
+  const provider = program.provider as AnchorProvider;
+  await provider.sendAndConfirm(createMarketTx, [], {
+    commitment: 'confirmed',
+    skipPreflight: false,
+  });
 
+  const resolverTx = new Transaction();
+
+  let gcForParimutuel: any = null;
   if (params.marketType === 'parimutuel') {
+    gcForParimutuel = await (program.account as any).globalConfig.fetch(
+      globalConfig
+    );
+    const platformTreasuryWallet = gcForParimutuel.platformTreasury as PublicKey;
+    const { instructions: treasuryAtaForPari } =
+      await instructionsToCreateCollateralAtaIfMissing(
+        connection,
+        creator,
+        params.collateralMint,
+        platformTreasuryWallet,
+        collateralTokenProgram
+      );
+    for (const ix of treasuryAtaForPari) resolverTx.add(ix);
+  }
+
+  for (let i = 0; i < numResolvers; i++) {
+    const pk = params.resolverPubkeys[i];
+    if (!pk) throw new Error(`Resolver pubkey missing for slot ${i}`);
+    const ix = await program.methods
+      .initializeMarketResolver({
+        marketId: params.marketId,
+        resolverIndex: i,
+        resolverPubkey: pk,
+      })
+      .accounts({
+        payer: creator,
+        market: marketPda,
+        resolver: deriveResolver(program.programId, marketPda, i),
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+    resolverTx.add(ix);
+  }
+
+  // Pari-mutuel pool init does not depend on resolvers; same tx saves a wallet approval.
+  if (params.marketType === 'parimutuel' && gcForParimutuel) {
+    const protocolBps = gcForParimutuel.parimutuelPenaltyProtocolShareBps as number;
     const parimutuelState = deriveParimutuelState(program.programId, marketPda);
-    const gc = await (program.account as any).globalConfig.fetch(globalConfig);
-    const protocolBps = gc.parimutuelPenaltyProtocolShareBps as number;
-    await program.methods
+    const pariIx = await program.methods
       .initializeParimutuelState({
         marketId: params.marketId,
         earlyWithdrawPenaltyBps: 500,
@@ -245,8 +300,17 @@ export async function createMarketFullFlow(
         parimutuelState,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
-  } else {
+      .instruction();
+    resolverTx.add(pariIx);
+  }
+
+  if (!wallet.sendTransaction) throw new Error('Wallet cannot send transactions');
+  const resolverSig = await wallet.sendTransaction(resolverTx, connection, {
+    skipPreflight: false,
+  });
+  await connection.confirmTransaction(resolverSig, 'confirmed');
+
+  if (params.marketType !== 'parimutuel') {
     const outcomeMints = deriveAllOutcomeMints(program.programId, marketPda);
 
     await program.methods
@@ -467,7 +531,6 @@ export async function voteResolutionTx(
   const program = await getProgram(connection, wallet);
   if (!wallet.publicKey) throw new Error('Wallet required');
 
-  const resolverPdas = deriveAllResolvers(program.programId, marketPda);
   const resolutionVote = deriveResolutionVote(
     program.programId,
     marketPda,
@@ -478,6 +541,7 @@ export async function voteResolutionTx(
     marketPda,
     outcomeIndex
   );
+  const resolverPda = deriveResolver(program.programId, marketPda, resolverIndex);
 
   await program.methods
     .voteResolution({
@@ -488,10 +552,7 @@ export async function voteResolutionTx(
     .accounts({
       resolverSigner: wallet.publicKey,
       market: marketPda,
-      resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+      resolver: resolverPda,
       resolutionVote,
       outcomeTally,
       systemProgram: SystemProgram.programId,
@@ -510,7 +571,6 @@ export async function revokeResolutionVoteTx(
   const program = await getProgram(connection, wallet);
   if (!wallet.publicKey) throw new Error('Wallet required');
 
-  const resolverPdas = deriveAllResolvers(program.programId, marketPda);
   const resolutionVote = deriveResolutionVote(
     program.programId,
     marketPda,
@@ -521,6 +581,7 @@ export async function revokeResolutionVoteTx(
     marketPda,
     outcomeIndex
   );
+  const resolverPda = deriveResolver(program.programId, marketPda, resolverIndex);
 
   await program.methods
     .revokeResolutionVote({
@@ -531,10 +592,7 @@ export async function revokeResolutionVoteTx(
     .accounts({
       resolverSigner: wallet.publicKey,
       market: marketPda,
-      resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
+      resolver: resolverPda,
       resolutionVote,
       outcomeTally,
     })
@@ -572,6 +630,35 @@ export async function fetchResolutionVoteState(
   } catch {
     return { hasVoted: false, outcomeIndex: 0 };
   }
+}
+
+/** Per-outcome resolver vote counts (slots 0–7). Missing PDAs read as 0. */
+export async function fetchOutcomeTallyCounts(
+  connection: Connection,
+  marketPda: PublicKey
+): Promise<number[]> {
+  const idl = await fetchIdl();
+  const provider = new AnchorProvider(
+    connection,
+    {
+      publicKey: DEFAULT_PUBKEY,
+      signTransaction: async (t: unknown) => t,
+      signAllTransactions: async (ts: unknown) => ts,
+    } as any,
+    { commitment: 'confirmed' }
+  );
+  const program = new Program(idl, provider);
+  const pdas = deriveAllOutcomeTallies(program.programId, marketPda);
+  return Promise.all(
+    pdas.map(async (pda) => {
+      try {
+        const acc = await (program.account as any).outcomeTally.fetch(pda);
+        return Number(acc.count ?? 0);
+      } catch {
+        return 0;
+      }
+    })
+  );
 }
 
 export async function finalizeResolutionTx(
@@ -612,17 +699,14 @@ export async function closeMarketEarlyTx(
   const program = await getProgram(connection, wallet);
   if (!wallet.publicKey) throw new Error('Wallet required');
 
-  const resolverPdas = deriveAllResolvers(program.programId, marketPda);
+  const globalConfigPda = deriveGlobalConfig(program.programId);
 
   await program.methods
     .closeMarketEarly({ marketId })
     .accounts({
       signer: wallet.publicKey,
+      globalConfig: globalConfigPda,
       market: marketPda,
-      resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
     })
     .rpc();
 }
@@ -636,17 +720,14 @@ export async function voidMarketTx(
   const program = await getProgram(connection, wallet);
   if (!wallet.publicKey) throw new Error('Wallet required');
 
-  const resolverPdas = deriveAllResolvers(program.programId, marketPda);
+  const globalConfigPda = deriveGlobalConfig(program.programId);
 
   await program.methods
     .voidMarket({ marketId })
     .accounts({
       signer: wallet.publicKey,
+      globalConfig: globalConfigPda,
       market: marketPda,
-      resolver0: resolverPdas[0], resolver1: resolverPdas[1],
-      resolver2: resolverPdas[2], resolver3: resolverPdas[3],
-      resolver4: resolverPdas[4], resolver5: resolverPdas[5],
-      resolver6: resolverPdas[6], resolver7: resolverPdas[7],
     })
     .rpc();
 }
@@ -790,6 +871,9 @@ export function isParimutuelMarket(market: { marketType?: unknown }): boolean {
   return t != null && typeof t === 'object' && 'parimutuel' in t;
 }
 
+/** Must match on-chain `ParimutuelPosition::LEN` (discriminator + `InitSpace`). */
+const PARIMUTUEL_POSITION_ACCOUNT_LEN = 163;
+
 export async function parimutuelStakeTx(
   connection: Connection,
   wallet: WalletContextState,
@@ -800,7 +884,9 @@ export async function parimutuelStakeTx(
   amount: BN
 ): Promise<void> {
   const program = await getProgram(connection, wallet);
-  if (!wallet.publicKey) throw new Error('Wallet required');
+  if (!wallet.publicKey || !wallet.signTransaction) {
+    throw new Error('Wallet required');
+  }
   const collateralTokenProgram = await getMintTokenProgram(
     connection,
     collateralMint
@@ -837,6 +923,7 @@ export async function parimutuelStakeTx(
     collateralTokenProgram
   );
   const marketAcc = await (program.account as any).market.fetch(marketPda);
+  const creatorFeePk = new PublicKey(marketAcc.creatorFeeAccount);
   await ensureAssociatedTokenAccount(
     connection,
     wallet,
@@ -844,8 +931,56 @@ export async function parimutuelStakeTx(
     treasuryWallet,
     collateralTokenProgram
   );
+  const creatorPk = new PublicKey(marketAcc.creator);
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    creatorPk,
+    collateralTokenProgram
+  );
 
-  await program.methods
+  const rentTopOpts = {
+    headroomLamports: isToken2022Program(collateralTokenProgram)
+      ? TOKEN_2022_RENT_HEADROOM_LAMPORTS
+      : 0,
+  };
+
+  let topUpSum = 0;
+  // treasuryWallet is the SOL system account — the stake ix sends platformFeeLamports
+  // directly to it, so it must be rent-exempt on its own (not just its token ATA).
+  for (const pk of [userCollateral, platformTreasuryAta, creatorFeePk, vaultPda]) {
+    topUpSum += await rentTopUpLamportsNeeded(connection, pk, rentTopOpts);
+  }
+  topUpSum += await rentTopUpLamportsNeeded(connection, treasuryWallet);
+  const positionInfo = await connection.getAccountInfo(position, 'confirmed');
+  const newPositionRent = positionInfo
+    ? 0
+    : await connection.getMinimumBalanceForRentExemption(
+        PARIMUTUEL_POSITION_ACCOUNT_LEN
+      );
+  const platformFeeLamports = new BN(globalConfig.platformFeeLamports).toNumber();
+  const payerMinRemaining = await connection.getMinimumBalanceForRentExemption(0);
+  // Extra when we send rent top-ups in a separate tx before stake.
+  const txFeeBuffer = rentTopOpts.headroomLamports > 0 ? 120_000 : 50_000;
+  const requiredFromPayer =
+    topUpSum +
+    newPositionRent +
+    platformFeeLamports +
+    payerMinRemaining +
+    txFeeBuffer;
+  const payer = wallet.publicKey;
+  const balance = await connection.getBalance(payer, 'confirmed');
+  if (balance < requiredFromPayer) {
+    throw new Error(
+      `Insufficient SOL: this stake needs about ${(requiredFromPayer / LAMPORTS_PER_SOL).toFixed(4)} SOL ` +
+        'for ATA rent top-ups, initializing your position (first stake on this outcome), ' +
+        `the configured platform SOL fee (${platformFeeLamports} lamports), and the minimum left in your wallet. ` +
+        `You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL.`
+    );
+  }
+
+  const stakeIx = await program.methods
     .parimutuelStake({
       marketId,
       outcomeIndex,
@@ -859,7 +994,7 @@ export async function parimutuelStakeTx(
       vault: vaultPda,
       collateralMint,
       userCollateralAccount: userCollateral,
-      creatorFeeAccount: marketAcc.creatorFeeAccount,
+      creatorFeeAccount: creatorFeePk,
       globalConfig: globalConfigPda,
       platformTreasuryWallet: treasuryWallet,
       platformTreasuryAta,
@@ -868,7 +1003,26 @@ export async function parimutuelStakeTx(
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
-    .rpc();
+    .instruction();
+
+  const topUpTx = new Transaction();
+  for (const pk of [userCollateral, platformTreasuryAta, creatorFeePk, vaultPda]) {
+    const top = await maybeRentTopUpInstruction(connection, pk, payer, rentTopOpts);
+    if (top) topUpTx.add(top);
+  }
+  // Ensure the treasury SOL wallet itself is rent-exempt (no headroom needed here).
+  const treasuryWalletTop = await maybeRentTopUpInstruction(connection, treasuryWallet, payer);
+  if (treasuryWalletTop) topUpTx.add(treasuryWalletTop);
+
+  const provider = program.provider as AnchorProvider;
+  if (topUpTx.instructions.length > 0) {
+    await provider.sendAndConfirm(topUpTx, [], PARIMUTUEL_SEND_OPTS);
+  }
+  await provider.sendAndConfirm(
+    new Transaction().add(stakeIx),
+    [],
+    PARIMUTUEL_SEND_OPTS
+  );
 }
 
 export async function parimutuelWithdrawTx(
@@ -881,12 +1035,21 @@ export async function parimutuelWithdrawTx(
   amount: BN
 ): Promise<void> {
   const program = await getProgram(connection, wallet);
-  if (!wallet.publicKey) throw new Error('Wallet required');
+  if (!wallet.publicKey || !wallet.signTransaction) {
+    throw new Error('Wallet required');
+  }
   const collateralTokenProgram = await getMintTokenProgram(
     connection,
     collateralMint
   );
   const userCollateral = ataAddress(
+    collateralMint,
+    wallet.publicKey,
+    collateralTokenProgram
+  );
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
     collateralMint,
     wallet.publicKey,
     collateralTokenProgram
@@ -918,8 +1081,23 @@ export async function parimutuelWithdrawTx(
   );
   const vaultPda = deriveVault(program.programId, marketPda);
   const marketAcc = await (program.account as any).market.fetch(marketPda);
+  const creatorFeePk = new PublicKey(marketAcc.creatorFeeAccount);
+  const creatorPk = new PublicKey(marketAcc.creator);
+  await ensureAssociatedTokenAccount(
+    connection,
+    wallet,
+    collateralMint,
+    creatorPk,
+    collateralTokenProgram
+  );
 
-  await program.methods
+  const rentTopOpts = {
+    headroomLamports: isToken2022Program(collateralTokenProgram)
+      ? TOKEN_2022_RENT_HEADROOM_LAMPORTS
+      : 0,
+  };
+
+  const withdrawIx = await program.methods
     .parimutuelWithdraw({
       marketId,
       outcomeIndex,
@@ -928,7 +1106,7 @@ export async function parimutuelWithdrawTx(
     .accounts({
       user: wallet.publicKey,
       market: marketPda,
-      creatorFeeAccount: marketAcc.creatorFeeAccount,
+      creatorFeeAccount: creatorFeePk,
       parimutuelState,
       position,
       vault: vaultPda,
@@ -941,7 +1119,26 @@ export async function parimutuelWithdrawTx(
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
-    .rpc();
+    .instruction();
+
+  const topUpTx = new Transaction();
+  const payer = wallet.publicKey;
+  for (const pk of [userCollateral, platformTreasuryAta, creatorFeePk, vaultPda]) {
+    const top = await maybeRentTopUpInstruction(connection, pk, payer, rentTopOpts);
+    if (top) topUpTx.add(top);
+  }
+  const treasuryWalletTop = await maybeRentTopUpInstruction(connection, treasuryWallet, payer);
+  if (treasuryWalletTop) topUpTx.add(treasuryWalletTop);
+
+  const provider = program.provider as AnchorProvider;
+  if (topUpTx.instructions.length > 0) {
+    await provider.sendAndConfirm(topUpTx, [], PARIMUTUEL_SEND_OPTS);
+  }
+  await provider.sendAndConfirm(
+    new Transaction().add(withdrawIx),
+    [],
+    PARIMUTUEL_SEND_OPTS
+  );
 }
 
 export async function parimutuelClaimTx(
@@ -953,7 +1150,9 @@ export async function parimutuelClaimTx(
   outcomeIndex: number
 ): Promise<void> {
   const program = await getProgram(connection, wallet);
-  if (!wallet.publicKey) throw new Error('Wallet required');
+  if (!wallet.publicKey || !wallet.signTransaction) {
+    throw new Error('Wallet required');
+  }
   const collateralTokenProgram = await getMintTokenProgram(
     connection,
     collateralMint
@@ -979,7 +1178,13 @@ export async function parimutuelClaimTx(
   );
   const vaultPda = deriveVault(program.programId, marketPda);
 
-  await program.methods
+  const rentTopOpts = {
+    headroomLamports: isToken2022Program(collateralTokenProgram)
+      ? TOKEN_2022_RENT_HEADROOM_LAMPORTS
+      : 0,
+  };
+
+  const claimIx = await program.methods
     .parimutuelClaim({
       marketId,
       outcomeIndex,
@@ -995,7 +1200,29 @@ export async function parimutuelClaimTx(
       collateralTokenProgram,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
-    .rpc();
+    .instruction();
+
+  const topUpTx = new Transaction();
+  const payer = wallet.publicKey;
+  for (const pk of [userCollateral, vaultPda]) {
+    const top = await maybeRentTopUpInstruction(
+      connection,
+      pk,
+      payer,
+      rentTopOpts
+    );
+    if (top) topUpTx.add(top);
+  }
+
+  const provider = program.provider as AnchorProvider;
+  if (topUpTx.instructions.length > 0) {
+    await provider.sendAndConfirm(topUpTx, [], PARIMUTUEL_SEND_OPTS);
+  }
+  await provider.sendAndConfirm(
+    new Transaction().add(claimIx),
+    [],
+    PARIMUTUEL_SEND_OPTS
+  );
 }
 
 /**

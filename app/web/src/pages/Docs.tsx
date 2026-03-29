@@ -66,24 +66,27 @@ const program = anchor.workspace.PredictionMarket as Program<PredictionMarket>;
 const client = new PredictionMarketClient(program);
 
 // Create market (3 steps)
+const marketId = new BN(12345);
+const resolverPubkeys = [resolverPubkey]; // length must match numResolvers
 const { marketPda } = await client.createMarket(
   creatorPubkey,
   collateralMintPubkey,
   creatorFeeAccountPubkey,
   {
-    marketId: new BN(12345),
+    marketId,
     outcomeCount: 2,
     resolutionThreshold: 1,
     closeAt: new BN(Math.floor(Date.now() / 1000) + 86400),
     creatorFeeBps: 50,
     depositPlatformFeeBps: 0,
-    numResolvers: 1,
+    numResolvers: resolverPubkeys.length,
     title: 'Will it rain tomorrow?',
     marketCategory: null,
     marketType: 'completeSet', // omit or 'parimutuel' — pari uses initializeParimutuelState instead of mints
   }
 );
-await client.initializeMarketResolvers(marketPda, { marketId, resolverPubkeys, numResolvers });
+// One tx: one program ix per resolver slot
+await client.initializeMarketResolverSlots(marketPda, { marketId, resolverPubkeys });
 await client.initializeMarketMints(marketPda, marketId);
 
 // Mint a complete set

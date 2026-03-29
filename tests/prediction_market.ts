@@ -35,6 +35,8 @@ import {
   deriveOutcomeTally,
   deriveResolutionVote,
   deriveMarketCategory,
+  deriveResolver,
+  initializeMarketResolverSlots,
 } from './test-helpers';
 
 // ─── Shared test state ───────────────────────────────────────────────────────
@@ -271,31 +273,14 @@ describe('create market', () => {
   });
 
   it('step 2: initializes resolver PDAs', async () => {
-    const resolverPubkeys = [
-      resolverKeypair.publicKey,
-      ...Array(7).fill(PublicKey.default),
-    ] as [PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey];
-
-    await program.methods
-      .initializeMarketResolvers({
-        marketId,
-        resolverPubkeys,
-        numResolvers: 1,
-      })
-      .accounts({
-        payer: payer.publicKey,
-        market: marketPda,
-        systemProgram: SystemProgram.programId,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
-      })
-      .rpc({ skipPreflight: true });
+    await initializeMarketResolverSlots(
+      program,
+      connection,
+      [payer.payer],
+      marketPda,
+      marketId,
+      [resolverKeypair.publicKey]
+    );
 
     const r0 = await program.account.resolver.fetch(resolverPdas[0]);
     assert.equal(r0.resolverPubkey.toBase58(), resolverKeypair.publicKey.toBase58());
@@ -452,15 +437,8 @@ describe('close market early', () => {
       .closeMarketEarly({ marketId })
       .accounts({
         signer: payer.publicKey,
+        globalConfig: globalConfigPda,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
       })
       .rpc({ skipPreflight: true });
 
@@ -478,17 +456,10 @@ describe('resolution', () => {
 
     await program.methods
       .voteResolution({ marketId, resolverIndex: 0, outcomeIndex: 0 })
-      .accountsStrict({
+      .accounts({
         resolverSigner: resolverKeypair.publicKey,
         market: marketPda,
-        resolver0: resolverPdas[0],
-        resolver1: resolverPdas[1],
-        resolver2: resolverPdas[2],
-        resolver3: resolverPdas[3],
-        resolver4: resolverPdas[4],
-        resolver5: resolverPdas[5],
-        resolver6: resolverPdas[6],
-        resolver7: resolverPdas[7],
+        resolver: deriveResolver(program.programId, marketPda, 0),
         resolutionVote: votePda,
         outcomeTally: tally0,
         systemProgram: SystemProgram.programId,
@@ -616,26 +587,14 @@ describe('void market', () => {
       })
       .rpc({ skipPreflight: true });
 
-    await program.methods
-      .initializeMarketResolvers({
-        marketId: voidMarketId,
-        resolverPubkeys: [resolverKeypair.publicKey, ...Array(7).fill(PublicKey.default)] as any,
-        numResolvers: 1,
-      })
-      .accounts({
-        payer: payer.publicKey,
-        market: voidMarketPda,
-        systemProgram: SystemProgram.programId,
-        resolver0: voidResolverPdas[0],
-        resolver1: voidResolverPdas[1],
-        resolver2: voidResolverPdas[2],
-        resolver3: voidResolverPdas[3],
-        resolver4: voidResolverPdas[4],
-        resolver5: voidResolverPdas[5],
-        resolver6: voidResolverPdas[6],
-        resolver7: voidResolverPdas[7],
-      })
-      .rpc({ skipPreflight: true });
+    await initializeMarketResolverSlots(
+      program,
+      connection,
+      [payer.payer],
+      voidMarketPda,
+      voidMarketId,
+      [resolverKeypair.publicKey]
+    );
   });
 
   it('creator can void the market', async () => {
@@ -643,15 +602,8 @@ describe('void market', () => {
       .voidMarket({ marketId: voidMarketId })
       .accounts({
         signer: payer.publicKey,
+        globalConfig: globalConfigPda,
         market: voidMarketPda,
-        resolver0: voidResolverPdas[0],
-        resolver1: voidResolverPdas[1],
-        resolver2: voidResolverPdas[2],
-        resolver3: voidResolverPdas[3],
-        resolver4: voidResolverPdas[4],
-        resolver5: voidResolverPdas[5],
-        resolver6: voidResolverPdas[6],
-        resolver7: voidResolverPdas[7],
       })
       .rpc({ skipPreflight: true });
 

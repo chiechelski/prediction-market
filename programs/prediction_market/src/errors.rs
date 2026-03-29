@@ -35,8 +35,8 @@ pub enum PredictionMarketError {
     #[msg("Signer is not a resolver for this market")]
     NotResolver,
 
-    #[msg("Only creator or resolver can perform this action")]
-    OnlyCreatorOrResolver,
+    #[msg("Only market creator or global config authority can perform this action")]
+    OnlyCreatorOrGlobalAuthority,
 
     #[msg("Platform fee + creator fee must not exceed 10000 bps")]
     InvalidFeeBps,
@@ -109,4 +109,7 @@ pub enum PredictionMarketError {
 
     #[msg("Position already claimed")]
     ParimutuelAlreadyClaimed,
+
+    #[msg("Only the market creator may initialize resolver accounts")]
+    OnlyMarketCreator,
 }

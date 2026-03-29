@@ -5,6 +5,9 @@ use crate::state::*;
 use crate::utils::transfer_checked;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount};
+use anchor_spl::token_interface::{
+    Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct RedeemCompleteSetArgs {
@@ -102,16 +105,16 @@ pub struct RedeemCompleteSet<'info> {
         bump,
         constraint = vault.key() == market.vault,
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, InterfaceTokenAccount>,
 
-    pub collateral_mint: InterfaceAccount<'info, anchor_spl::token_interface::Mint>,
+    pub collateral_mint: InterfaceAccount<'info, InterfaceMint>,
 
     #[account(
         mut,
         constraint = user_collateral_account.owner == user.key(),
         constraint = user_collateral_account.mint == collateral_mint.key(),
     )]
-    pub user_collateral_account: Account<'info, TokenAccount>,
+    pub user_collateral_account: InterfaceAccount<'info, InterfaceTokenAccount>,
 
     #[account(mut, seeds = [market.key().as_ref(), b"outcome-mint", &[0]], bump)]
     pub outcome_mint_0: Box<Account<'info, Mint>>,
@@ -147,6 +150,6 @@ pub struct RedeemCompleteSet<'info> {
     #[account(mut)]
     pub user_outcome_7: Box<Account<'info, TokenAccount>>,
 
-    pub collateral_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
+    pub collateral_token_program: Interface<'info, TokenInterface>,
     pub token_program: Program<'info, Token>,
 }

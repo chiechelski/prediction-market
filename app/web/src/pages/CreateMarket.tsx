@@ -68,10 +68,6 @@ export default function CreateMarket() {
     import.meta.env.VITE_COLLATERAL_MINT ?? ''
   );
   const [extraResolvers, setExtraResolvers] = useState('');
-  /** Complete-set (SPL tokens) vs pari-mutuel ledger pool. */
-  const [marketMode, setMarketMode] = useState<'completeSet' | 'parimutuel'>(
-    'completeSet'
-  );
 
   const updateOutcomeLabels = (n: number) => {
     setOutcomeCount(n);
@@ -236,7 +232,7 @@ export default function CreateMarket() {
         resolverPubkeys,
         title,
         marketCategory: catPk,
-        marketType: marketMode === 'parimutuel' ? 'parimutuel' : 'completeSet',
+        marketType: 'parimutuel',
       });
 
       registerMarket({
@@ -296,9 +292,9 @@ export default function CreateMarket() {
         Create market
       </h1>
       <p className="text-outline font-medium">
-        Creates the market account and resolver accounts. Complete-set markets add
-        outcome mints; pari-mutuel markets add a pool account instead (three
-        transactions).
+        Creates the market account, then resolver PDAs and the pari-mutuel pool in one
+        follow-up transaction (two signatures total). Stakes use on-chain pool accounting
+        only (no SPL outcome mints).
       </p>
 
       <div className="mt-6 max-w-3xl rounded-xl border border-outline/15 bg-surface px-4 py-3 text-sm">
@@ -364,30 +360,12 @@ export default function CreateMarket() {
           <span className="block text-sm font-medium text-on-surface">
             Market mechanics
           </span>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:gap-6">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-on-surface-variant">
-              <input
-                type="radio"
-                name="marketMode"
-                checked={marketMode === 'completeSet'}
-                onChange={() => setMarketMode('completeSet')}
-                className="h-4 w-4"
-              />
-              Complete-set (outcome tokens — mint/redeem full set)
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-on-surface-variant">
-              <input
-                type="radio"
-                name="marketMode"
-                checked={marketMode === 'parimutuel'}
-                onChange={() => setMarketMode('parimutuel')}
-                className="h-4 w-4"
-              />
-              Pari-mutuel (stake on one outcome; pro-rata pool payout)
-            </label>
-          </div>
+          <p className="mt-2 text-sm text-on-surface-variant">
+            Pari-mutuel — stake on one outcome; pro-rata pool payout after
+            resolution.
+          </p>
           <p className="mt-1 text-xs text-outline">
-            Pari-mutuel uses on-chain pool accounting only (no SPL outcome mints).
+            On-chain pool accounting only (no SPL outcome mints).
           </p>
         </div>
         <div>

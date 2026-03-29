@@ -2,7 +2,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { Program, BN } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { PredictionMarket } from '../../../target/types/prediction_market';
-import type { CreateMarketParams, InitializeParimutuelStateParams, ParimutuelStakeParams, ParimutuelWithdrawParams, ParimutuelClaimParams, InitializeConfigParams, UpdateConfigParams, InitializeMarketResolversParams, MintCompleteSetParams, RedeemCompleteSetParams, VoteResolutionParams, FinalizeResolutionParams, RevokeResolutionVoteParams, RedeemWinningParams, CloseMarketEarlyParams, VoidMarketParams, GlobalConfigAccount, MarketAccount, UpsertUserProfileParams, VerifyUserProfileParams, UserProfileAccount } from './types';
+import type { CreateMarketParams, InitializeParimutuelStateParams, ParimutuelStakeParams, ParimutuelWithdrawParams, ParimutuelClaimParams, InitializeConfigParams, UpdateConfigParams, InitializeMarketResolverSlotsParams, MintCompleteSetParams, RedeemCompleteSetParams, VoteResolutionParams, FinalizeResolutionParams, RevokeResolutionVoteParams, RedeemWinningParams, CloseMarketEarlyParams, VoidMarketParams, GlobalConfigAccount, MarketAccount, UpsertUserProfileParams, VerifyUserProfileParams, UserProfileAccount } from './types';
 export declare class PredictionMarketClient {
     readonly program: Program<PredictionMarket>;
     readonly connection: Connection;
@@ -36,10 +36,9 @@ export declare class PredictionMarketClient {
         sig: string;
     }>;
     /**
-     * Step 2 — Initialize up to 8 Resolver PDAs.
-     * Fill unused slots with `PublicKey.default`.
+     * Step 2 — Initialize resolver PDAs for slots `0..resolverPubkeys.length-1` in **one** transaction.
      */
-    initializeMarketResolvers(marketPda: PublicKey, params: InitializeMarketResolversParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
+    initializeMarketResolverSlots(marketPda: PublicKey, params: InitializeMarketResolverSlotsParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
     /**
      * Step 3 — Initialize 8 Outcome Mints.
      * Decimals are inherited from the collateral mint stored on the market account.
@@ -49,7 +48,9 @@ export declare class PredictionMarketClient {
      * Convenience: run all 3 market creation steps in sequence.
      * Returns the market PDA.
      */
-    createMarketFull(creator: PublicKey, collateralMint: PublicKey, creatorFeeAccount: PublicKey, resolverPubkeys: [PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey], params: CreateMarketParams, opts?: anchor.web3.ConfirmOptions): Promise<PublicKey>;
+    createMarketFull(creator: PublicKey, collateralMint: PublicKey, creatorFeeAccount: PublicKey, 
+    /** Length must equal `params.numResolvers` (typically the first N of an 8-slot UI). */
+    resolverPubkeys: PublicKey[], params: CreateMarketParams, opts?: anchor.web3.ConfirmOptions): Promise<PublicKey>;
     /** Pari-mutuel pool + penalty params (step after resolvers, replaces mint init). */
     initializeParimutuelState(marketPda: PublicKey, params: InitializeParimutuelStateParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
     parimutuelStake(marketPda: PublicKey, params: ParimutuelStakeParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
@@ -90,9 +91,9 @@ export declare class PredictionMarketClient {
      * automatically from on-chain state if not provided.
      */
     redeemWinning(user: PublicKey, marketPda: PublicKey, collateralMint: PublicKey, userCollateralAccount: PublicKey, params: RedeemWinningParams, opts?: anchor.web3.ConfirmOptions, platformTreasuryWallet?: PublicKey): Promise<string>;
-    /** Creator or any resolver can close the market before `close_at`. */
+    /** Market creator or global config authority can close the market before `close_at`. */
     closeMarketEarly(marketPda: PublicKey, params: CloseMarketEarlyParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
-    /** Void the market (cancel); enables full-set redemption for all holders. */
+    /** Void the market (cancel); enables full-set redemption for all holders. Creator or global authority only. */
     voidMarket(marketPda: PublicKey, params: VoidMarketParams, opts?: anchor.web3.ConfirmOptions): Promise<string>;
     fetchGlobalConfig(): Promise<GlobalConfigAccount>;
     fetchMarket(market: PublicKey): Promise<MarketAccount>;
